@@ -1,0 +1,882 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>The Shape of Happiness · WHR 2026</title>
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<style>
+  :root {
+    --bg:#f3ead8;
+    --panel:#fbf4dd;
+    --ink:#1f1a14;
+    --muted:#7a6f5e;
+    --grid:#d8cdb5;
+    --over:#c0392b;
+    --under:#3a6a8a;
+    --neutral:#7a7a7a;
+    --bench:#2c3e50;
+    --avg:#9a8a6e;
+  }
+  * { box-sizing:border-box; }
+  html,body { margin:0; padding:0; background:var(--bg); color:var(--ink);
+    font-family:"Inter","Helvetica Neue",Arial,sans-serif; }
+  h1 { font-family:Georgia,"Times New Roman",serif; font-weight:700;
+    font-size:30px; margin:0 0 4px; letter-spacing:-0.01em; }
+  h1 .red { color:var(--over); }
+  .sub { color:var(--muted); font-style:italic; font-size:14px; margin-bottom:14px; max-width:820px; }
+  .wrap { max-width:1240px; margin:24px auto; padding:0 20px 40px; }
+  .controls { display:flex; align-items:center; gap:14px; margin:10px 0 8px;
+    padding:10px 14px; background:rgba(255,255,255,0.4);
+    border:1px solid var(--grid); border-radius:6px; flex-wrap:wrap; }
+  .controls label { font-size:13px; color:var(--muted); font-family:Georgia,serif; font-style:italic; }
+  .yr { font-family:Georgia,serif; font-weight:700; font-size:22px;
+    color:var(--ink); min-width:60px; }
+  #yearSlider { flex:1; min-width:200px; accent-color:var(--over); }
+  button { background:var(--ink); color:var(--bg); border:none;
+    padding:6px 12px; font-size:12px; border-radius:4px; cursor:pointer; }
+  button.ghost { background:transparent; color:var(--ink); border:1px solid var(--ink); }
+  /* === chart panel framing === */
+  .chart-panel { background:var(--panel); border:1px solid var(--grid);
+    border-radius:6px; padding:18px 18px 12px;
+    box-shadow:0 1px 3px rgba(31,26,20,0.04); }
+  svg { display:block; background:transparent; }
+  .axis path, .axis line { stroke:var(--grid); }
+  .axis text { fill:var(--muted); font-size:11px; }
+  /* serif italic for narrative chart labels (axis, quadrant, avg) */
+  .axis-label { fill:var(--ink); font-size:14px; font-style:italic; font-family:Georgia,serif; }
+  .reg-line { stroke:var(--ink); stroke-width:1.3; }
+  .bg-dot { fill:#b8ad96; opacity:0.45; }
+  .stem { stroke-dasharray:2 3; stroke-width:1; opacity:0.55; }
+  /* sans for data labels — country only, with panel-coloured halo */
+  .glyph-label { font-size:11px; font-weight:600;
+    paint-order:stroke; stroke:var(--panel); stroke-width:3.5; stroke-linejoin:round; }
+  .leader { stroke-width:0.7; fill:none; opacity:0.45; }
+  .pinned-ring { fill:none; stroke-width:1.6; stroke-dasharray:3 2; }
+  .hover-halo { fill:none; stroke-width:2; pointer-events:none; opacity:0; }
+  .quad-label { font-family:Georgia,serif; font-style:italic; font-size:12px;
+    paint-order:stroke; stroke:var(--panel); stroke-width:4; stroke-linejoin:round; }
+  .avg-label { font-family:Georgia,serif; font-style:italic; font-size:10px;
+    fill:var(--avg);
+    paint-order:stroke; stroke:var(--panel); stroke-width:3; }
+  .tooltip { position:absolute; pointer-events:none; background:var(--ink);
+    color:var(--bg); padding:8px 10px; font-size:12px; border-radius:4px;
+    opacity:0; transition:opacity 0.12s; max-width:280px; line-height:1.4; z-index:10; }
+  .tooltip b { font-family:Georgia,serif; font-size:13px; }
+  .tooltip .row { display:flex; justify-content:space-between; gap:12px; }
+  /* Factor-bar widgets (used inside tooltip + in pinned trail) */
+  .fbar-grid { display:grid; grid-template-columns:auto 1fr auto; gap:3px 8px;
+    margin-top:4px; align-items:center; }
+  .fbar-label { font-family:Georgia,serif; font-size:11px; }
+  .fbar-track { position:relative; height:8px; background:rgba(255,255,255,0.10);
+    border-radius:2px; overflow:hidden; }
+  .fbar-fill  { position:absolute; top:0; left:0; height:100%; border-radius:2px; }
+  .fbar-val   { font-family:Georgia,serif; font-size:11px; opacity:0.85;
+    font-variant-numeric:tabular-nums; min-width:32px; text-align:right; }
+  /* Larger bars used in the pinned-trail panel — darker tracks on cream bg */
+  .pin-bars { margin-top:10px; }
+  .pin-bars .fbar-grid { gap:6px 12px; }
+  .pin-bars .fbar-label { font-size:13px; color:var(--ink); }
+  .pin-bars .fbar-track { height:14px; background:#e8dec2; }
+  .pin-bars .fbar-val { font-size:12px; color:var(--ink); opacity:1; }
+  .pin-bars .pin-bars-head { font-family:Georgia,serif; font-style:italic;
+    font-size:12px; color:var(--muted); margin-bottom:6px; }
+  .legend { display:flex; gap:18px; font-size:12px; color:var(--muted);
+    margin-top:8px; flex-wrap:wrap; }
+  .legend .sw { display:inline-block; width:12px; height:12px;
+    border-radius:50%; vertical-align:middle; margin-right:4px; }
+  .note { font-size:12px; color:var(--muted); font-style:italic;
+    margin:14px 0 0; max-width:820px; }
+  .annotation { background:#fff; border:1px solid var(--grid);
+    border-left:4px solid var(--over);
+    padding:12px 16px; margin:10px 0; border-radius:4px;
+    font-family:Georgia,serif; font-size:15px; line-height:1.55;
+    color:var(--ink); max-width:880px; }
+  .annotation .yr-tag { font-weight:700; color:var(--over); margin-right:10px;
+    font-size:16px; }
+  .annotation .country-mention { font-weight:700; }
+  .trail-strip { margin-top:18px; padding:16px 18px;
+    background:#fbf4dd; border:1px solid var(--grid);
+    border-radius:6px; }
+  .trail-strip h3 { font-family:Georgia,serif; font-size:16px;
+    margin:0 0 4px; font-weight:700; }
+  .trail-strip .strip-sub { font-family:Georgia,serif; font-style:italic;
+    color:var(--muted); font-size:13px; margin:0 0 14px; }
+  .trail-row { margin-bottom:14px; padding-bottom:14px;
+    border-bottom:1px dashed var(--grid); }
+  .trail-row:last-child { margin-bottom:0; padding-bottom:0; border-bottom:none; }
+  .trail-row-label { font-family:Georgia,serif; font-size:14px; font-weight:700;
+    margin-bottom:6px; display:flex; justify-content:space-between; align-items:center; }
+  .trail-row-label .close { background:transparent; color:var(--muted);
+    border:none; cursor:pointer; font-size:12px; padding:0 4px; font-style:italic;
+    font-family:Georgia,serif; }
+  .trail-row-label .close:hover { color:var(--ink); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>The Shape of <span class="red">Happiness.</span></h1>
+  <div class="sub">Eight countries, four stories: where wealth predicts happiness, and where it doesn't.
+    Each flower is a country — the petals show what's inside its happiness.
+    A faint grey flower marks the world average. <b>Click any flower to see how it changed over time.</b></div>
+
+  <div class="controls">
+    <label>Year</label>
+    <input id="yearSlider" type="range" min="2019" max="2025" step="1" value="2025">
+    <div class="yr" id="yrLabel">2025</div>
+    <button id="playBtn">▶ Play</button>
+    <button class="ghost" id="resetViewBtn">Reset</button>
+  </div>
+
+  <div class="annotation" id="annotation">
+    <span class="yr-tag" id="annoYr">2025</span>
+    <span id="annoText"></span>
+  </div>
+
+  <div class="chart-panel">
+    <svg id="chart" width="1200" height="720"></svg>
+  </div>
+
+  <div class="legend">
+    <span><span class="sw" style="background:var(--over)"></span>Happier than wealth predicts</span>
+    <span><span class="sw" style="background:var(--bench)"></span>Denmark (the benchmark)</span>
+    <span><span class="sw" style="background:var(--neutral)"></span>About what wealth predicts</span>
+    <span><span class="sw" style="background:var(--under)"></span>Less happy than wealth predicts</span>
+    <span><span class="sw" style="background:var(--avg)"></span>World average</span>
+  </div>
+
+  <p class="note">Position on the chart shows wealth (left–right) and happiness (up–down).
+    Petal size shows what each country has more or less of — wealth, social support,
+    health, freedom, generosity, low corruption. Hover any flower for details.</p>
+
+  <div class="trail-strip" id="trailStrip" style="display:none;">
+    <h3>Pinned trails</h3>
+    <p class="strip-sub">How each country's shape of happiness has changed, 2019 → 2025.</p>
+    <div id="trailRows"></div>
+  </div>
+</div>
+
+<div class="tooltip" id="tip"></div>
+
+<script>
+const CAST = {"Denmark":{"2025":{"rank":3,"life":7.539,"gdp":1.986,"soc":1.633,"hea":0.93,"fre":1.081,"gen":0.125,"cor":0.474},"2024":{"rank":2,"life":7.521,"gdp":1.825,"soc":1.748,"hea":0.82,"fre":0.955,"gen":0.15,"cor":0.488},"2023":{"rank":2,"life":7.583,"gdp":1.908,"soc":1.52,"hea":0.699,"fre":0.823,"gen":0.204,"cor":0.548},"2022":{"rank":2,"life":7.586,"gdp":1.949,"soc":1.548,"hea":0.537,"fre":0.734,"gen":0.208,"cor":0.525},"2021":{"rank":2,"life":7.636,"gdp":1.953,"soc":1.243,"hea":0.777,"fre":0.719,"gen":0.188,"cor":0.532},"2020":{"rank":2,"life":7.62,"gdp":1.502,"soc":1.108,"hea":0.763,"fre":0.686,"gen":0.208,"cor":0.485},"2019":{"rank":2,"life":7.64559984207153,"gdp":1.32694852352142,"soc":1.50344920158386,"hea":0.979332566261292,"fre":0.665039896965027,"gen":0.242793396115303,"cor":0.495260328054428}},"Costa Rica":{"2025":{"rank":4,"life":7.439,"gdp":1.697,"soc":1.483,"hea":0.739,"fre":1.101,"gen":0.059,"cor":0.122},"2024":{"rank":6,"life":7.274,"gdp":1.492,"soc":1.6,"hea":0.68,"fre":0.948,"gen":0.067,"cor":0.118},"2023":{"rank":12,"life":6.955,"gdp":1.561,"soc":1.373,"hea":0.661,"fre":0.797,"gen":0.109,"cor":0.123},"2022":{"rank":23,"life":6.609,"gdp":1.587,"soc":1.34,"hea":0.503,"fre":0.683,"gen":0.099,"cor":0.116},"2021":{"rank":23,"life":6.582,"gdp":1.584,"soc":1.054,"hea":0.744,"fre":0.661,"gen":0.089,"cor":0.102},"2020":{"rank":16,"life":7.069,"gdp":1.134,"soc":0.966,"hea":0.722,"fre":0.673,"gen":0.105,"cor":0.083},"2019":{"rank":15,"life":7.12139987945557,"gdp":0.981107711791992,"soc":1.37485361099243,"hea":0.939635336399078,"fre":0.645017743110657,"gen":0.131266310811043,"cor":0.0963620916008949}},"Mexico":{"2025":{"rank":12,"life":6.972,"gdp":1.636,"soc":1.366,"hea":0.631,"fre":1.015,"gen":0.056,"cor":0.128},"2024":{"rank":10,"life":6.979,"gdp":1.435,"soc":1.504,"hea":0.55,"fre":0.879,"gen":0.057,"cor":0.118},"2023":{"rank":25,"life":6.678,"gdp":1.521,"soc":1.241,"hea":0.544,"fre":0.722,"gen":0.086,"cor":0.127},"2022":{"rank":36,"life":6.33,"gdp":1.55,"soc":1.169,"hea":0.389,"fre":0.632,"gen":0.086,"cor":0.115},"2021":{"rank":46,"life":6.128,"gdp":1.552,"soc":0.886,"hea":0.623,"fre":0.621,"gen":0.092,"cor":0.115},"2020":{"rank":36,"life":6.317,"gdp":1.126,"soc":0.83,"hea":0.634,"fre":0.585,"gen":0.092,"cor":0.089},"2019":{"rank":24,"life":6.46500015258789,"gdp":1.02438747882843,"soc":1.22633349895477,"hea":0.831601023674011,"fre":0.553892552852631,"gen":0.083094485104084,"cor":0.0831336677074432}},"United States":{"2025":{"rank":23,"life":6.816,"gdp":2.002,"soc":1.516,"hea":0.678,"fre":0.776,"gen":0.155,"cor":0.155},"2024":{"rank":24,"life":6.724,"gdp":1.839,"soc":1.614,"hea":0.604,"fre":0.644,"gen":0.171,"cor":0.161},"2023":{"rank":23,"life":6.725,"gdp":1.939,"soc":1.392,"hea":0.542,"fre":0.586,"gen":0.223,"cor":0.169},"2022":{"rank":15,"life":6.894,"gdp":1.98,"soc":1.46,"hea":0.39,"fre":0.557,"gen":0.21,"cor":0.172},"2021":{"rank":16,"life":6.977,"gdp":1.982,"soc":1.182,"hea":0.628,"fre":0.574,"gen":0.22,"cor":0.177},"2020":{"rank":19,"life":6.951,"gdp":1.533,"soc":1.03,"hea":0.621,"fre":0.554,"gen":0.252,"cor":0.154},"2019":{"rank":18,"life":6.93959999084473,"gdp":1.37398684024811,"soc":1.40478670597076,"hea":0.831618010997772,"fre":0.534608244895935,"gen":0.298143059015274,"cor":0.152284741401672}},"Singapore":{"2025":{"rank":36,"life":6.585,"gdp":2.167,"soc":1.471,"hea":1.059,"fre":0.98,"gen":0.145,"cor":0.512},"2024":{"rank":34,"life":6.565,"gdp":2.022,"soc":1.565,"hea":0.935,"fre":0.856,"gen":0.164,"cor":0.522},"2023":{"rank":30,"life":6.523,"gdp":2.118,"soc":1.361,"hea":0.769,"fre":0.743,"gen":0.168,"cor":0.575},"2022":{"rank":25,"life":6.587,"gdp":2.168,"soc":1.354,"hea":0.607,"fre":0.66,"gen":0.17,"cor":0.561},"2021":{"rank":27,"life":6.48,"gdp":2.149,"soc":1.127,"hea":0.851,"fre":0.672,"gen":0.163,"cor":0.587},"2020":{"rank":32,"life":6.377,"gdp":1.695,"soc":1.019,"hea":0.897,"fre":0.664,"gen":0.176,"cor":0.547},"2019":{"rank":31,"life":6.37709999084473,"gdp":1.51958012580872,"soc":1.39545691013336,"hea":1.13781428337097,"fre":0.635317206382751,"gen":0.218770906329155,"cor":0.533162236213684}},"Mozambique":{"2025":{"rank":93,"life":5.336,"gdp":0.839,"soc":1.018,"hea":0.126,"fre":0.888,"gen":0.116,"cor":0.165},"2024":{"rank":96,"life":5.19,"gdp":0.559,"soc":1.131,"hea":0.124,"fre":0.813,"gen":0.127,"cor":0.173},"2023":{"rank":90,"life":5.216,"gdp":0.56,"soc":0.883,"hea":0.156,"fre":0.728,"gen":0.158,"cor":0.196},"2022":{"rank":97,"life":4.954,"gdp":0.57,"soc":0.885,"hea":0,"fre":0.625,"gen":0.161,"cor":0.192},"2021":{"rank":101,"life":5.048,"gdp":0.578,"soc":0.66,"hea":0.191,"fre":0.593,"gen":0.185,"cor":0.2},"2020":{"rank":115,"life":4.794,"gdp":0.183,"soc":0.634,"hea":0.196,"fre":0.608,"gen":0.228,"cor":0.163},"2019":{"rank":120,"life":4.62360000610352,"gdp":0.178741365671158,"soc":0.955202877521515,"hea":0.324223637580872,"fre":0.560775339603424,"gen":0.220422104001045,"cor":0.163064315915108}},"Botswana":{"2025":{"rank":143,"life":3.464,"gdp":1.582,"soc":0.989,"hea":0.017,"fre":0.86,"gen":0.022,"cor":0.093},"2024":{"rank":142,"life":3.438,"gdp":1.388,"soc":1.146,"hea":0.094,"fre":0.697,"gen":0.018,"cor":0.083},"2023":{"rank":137,"life":3.383,"gdp":1.445,"soc":0.969,"hea":0.241,"fre":0.567,"gen":0.014,"cor":0.082},"2022":{"rank":132,"life":3.435,"gdp":1.471,"soc":1.041,"hea":0.087,"fre":0.48,"gen":0.021,"cor":0.071},"2021":{"rank":142,"life":3.471,"gdp":1.503,"soc":0.815,"hea":0.28,"fre":0.571,"gen":0.012,"cor":0.102},"2020":{"rank":146,"life":3.467,"gdp":1.099,"soc":0.724,"hea":0.34,"fre":0.539,"gen":0.027,"cor":0.088},"2019":{"rank":147,"life":3.47889995574951,"gdp":0.997548997402191,"soc":1.08569478988647,"hea":0.494101732969284,"fre":0.509089410305023,"gen":0.033407486975193,"cor":0.101786367595196}},"Afghanistan":{"2025":{"rank":147,"life":1.446,"gdp":0.921,"soc":0,"hea":0.176,"fre":0,"gen":0.079,"cor":0.131},"2024":{"rank":147,"life":1.364,"gdp":0.649,"soc":0,"hea":0.155,"fre":0,"gen":0.075,"cor":0.135},"2023":{"rank":143,"life":1.721,"gdp":0.628,"soc":0,"hea":0.242,"fre":0,"gen":0.091,"cor":0.088},"2022":{"rank":137,"life":1.859,"gdp":0.645,"soc":0,"hea":0.087,"fre":0,"gen":0.093,"cor":0.059},"2021":{"rank":146,"life":2.404,"gdp":0.758,"soc":0,"hea":0.289,"fre":0,"gen":0.089,"cor":0.005},"2020":{"rank":149,"life":2.523,"gdp":0.37,"soc":0,"hea":0.126,"fre":0,"gen":0.122,"cor":0.01},"2019":{"rank":153,"life":2.56690001487732,"gdp":0.300705850124359,"soc":0.356433838605881,"hea":0.266051530838013,"fre":0,"gen":0.135234713554382,"cor":0.00122578535228968}}};
+const ALL  = {"2019":[{"c":"Finland","gdp":1.285,"life":7.809},{"c":"Denmark","gdp":1.327,"life":7.646},{"c":"Switzerland","gdp":1.391,"life":7.56},{"c":"Iceland","gdp":1.327,"life":7.504},{"c":"Norway","gdp":1.424,"life":7.488},{"c":"Netherlands","gdp":1.339,"life":7.449},{"c":"Sweden","gdp":1.322,"life":7.353},{"c":"New Zealand","gdp":1.242,"life":7.3},{"c":"Austria","gdp":1.317,"life":7.294},{"c":"Luxembourg","gdp":1.537,"life":7.238},{"c":"Canada","gdp":1.302,"life":7.232},{"c":"Australia","gdp":1.31,"life":7.223},{"c":"United Kingdom","gdp":1.273,"life":7.165},{"c":"Israel","gdp":1.216,"life":7.129},{"c":"Costa Rica","gdp":0.981,"life":7.121},{"c":"Ireland","gdp":1.447,"life":7.094},{"c":"Germany","gdp":1.314,"life":7.076},{"c":"United States","gdp":1.374,"life":6.94},{"c":"Czechia","gdp":1.212,"life":6.911},{"c":"Belgium","gdp":1.296,"life":6.864},{"c":"United Arab Emirates","gdp":1.431,"life":6.791},{"c":"Malta","gdp":1.253,"life":6.773},{"c":"France","gdp":1.268,"life":6.664},{"c":"Mexico","gdp":1.024,"life":6.465},{"c":"Taiwan Province of China","gdp":1.327,"life":6.455},{"c":"Uruguay","gdp":1.071,"life":6.44},{"c":"Saudi Arabia","gdp":1.334,"life":6.406},{"c":"Spain","gdp":1.231,"life":6.401},{"c":"Guatemala","gdp":0.754,"life":6.399},{"c":"Italy","gdp":1.236,"life":6.387},{"c":"Singapore","gdp":1.52,"life":6.377},{"c":"Brazil","gdp":0.953,"life":6.376},{"c":"Slovenia","gdp":1.209,"life":6.363},{"c":"El Salvador","gdp":0.749,"life":6.348},{"c":"Kosovo","gdp":0.84,"life":6.325},{"c":"Panama","gdp":1.098,"life":6.305},{"c":"Slovakia","gdp":1.195,"life":6.281},{"c":"Uzbekistan","gdp":0.697,"life":6.258},{"c":"Chile","gdp":1.097,"life":6.228},{"c":"Bahrain","gdp":1.297,"life":6.227},{"c":"Lithuania","gdp":1.194,"life":6.215},{"c":"Trinidad and Tobago","gdp":1.168,"life":6.192},{"c":"Poland","gdp":1.169,"life":6.186},{"c":"Colombia","gdp":0.932,"life":6.163},{"c":"Cyprus","gdp":1.213,"life":6.159},{"c":"Nicaragua","gdp":0.62,"life":6.137},{"c":"Romania","gdp":1.12,"life":6.124},{"c":"Kuwait","gdp":1.425,"life":6.102},{"c":"Mauritius","gdp":1.074,"life":6.101},{"c":"Kazakhstan","gdp":1.123,"life":6.058},{"c":"Estonia","gdp":1.192,"life":6.022},{"c":"Philippines","gdp":0.775,"life":6.006},{"c":"Hungary","gdp":1.164,"life":6.0},{"c":"Thailand","gdp":1.007,"life":5.999},{"c":"Argentina","gdp":1.028,"life":5.975},{"c":"Honduras","gdp":0.599,"life":5.953},{"c":"Latvia","gdp":1.141,"life":5.95},{"c":"Ecuador","gdp":0.853,"life":5.925},{"c":"Portugal","gdp":1.169,"life":5.911},{"c":"Jamaica","gdp":0.779,"life":5.89},{"c":"Republic of Korea","gdp":1.245,"life":5.872},{"c":"Japan","gdp":1.267,"life":5.871},{"c":"Peru","gdp":0.919,"life":5.797},{"c":"Serbia","gdp":0.988,"life":5.778},{"c":"Bolivia","gdp":0.731,"life":5.747},{"c":"Pakistan","gdp":0.617,"life":5.693},{"c":"Paraguay","gdp":0.898,"life":5.692},{"c":"Dominican Republic","gdp":0.983,"life":5.689},{"c":"Bosnia and Herzegovina","gdp":0.918,"life":5.674},{"c":"Republic of Moldova","gdp":0.708,"life":5.608},{"c":"Tajikistan","gdp":0.475,"life":5.556},{"c":"Montenegro","gdp":1.01,"life":5.546},{"c":"Russian Federation","gdp":1.127,"life":5.546},{"c":"Kyrgyzstan","gdp":0.513,"life":5.542},{"c":"Belarus","gdp":1.019,"life":5.54},{"c":"North Cyprus","gdp":1.213,"life":5.536},{"c":"Greece","gdp":1.128,"life":5.515},{"c":"Hong Kong SAR of China","gdp":1.377,"life":5.51},{"c":"Croatia","gdp":1.109,"life":5.505},{"c":"Libya","gdp":1.022,"life":5.489},{"c":"Mongolia","gdp":0.905,"life":5.456},{"c":"Malaysia","gdp":1.168,"life":5.384},{"c":"Viet Nam","gdp":0.718,"life":5.353},{"c":"Indonesia","gdp":0.892,"life":5.286},{"c":"C\u00f4te d\u2019Ivoire","gdp":0.537,"life":5.233},{"c":"Benin","gdp":0.366,"life":5.216},{"c":"Maldives","gdp":0.938,"life":5.198},{"c":"Congo","gdp":0.634,"life":5.194},{"c":"Azerbaijan","gdp":0.99,"life":5.165},{"c":"North Macedonia","gdp":0.935,"life":5.16},{"c":"Ghana","gdp":0.576,"life":5.148},{"c":"Nepal","gdp":0.444,"life":5.137},{"c":"T\u00fcrkiye","gdp":1.127,"life":5.132},{"c":"China","gdp":0.991,"life":5.124},{"c":"Turkmenistan","gdp":1.009,"life":5.119},{"c":"Bulgaria","gdp":1.047,"life":5.102},{"c":"Morocco","gdp":0.759,"life":5.095},{"c":"Cameroon","gdp":0.504,"life":5.085},{"c":"Algeria","gdp":0.944,"life":5.005},{"c":"Senegal","gdp":0.504,"life":4.981},{"c":"Guinea","gdp":0.39,"life":4.949},{"c":"Niger","gdp":0.108,"life":4.91},{"c":"Lao PDR","gdp":0.715,"life":4.889},{"c":"Albania","gdp":0.907,"life":4.883},{"c":"Cambodia","gdp":0.545,"life":4.848},{"c":"Bangladesh","gdp":0.556,"life":4.833},{"c":"Gabon","gdp":0.988,"life":4.829},{"c":"South Africa","gdp":0.902,"life":4.814},{"c":"Iraq","gdp":0.982,"life":4.785},{"c":"Lebanon","gdp":0.889,"life":4.772},{"c":"Burkina Faso","gdp":0.302,"life":4.769},{"c":"Gambia","gdp":0.257,"life":4.751},{"c":"Mali","gdp":0.352,"life":4.729},{"c":"Nigeria","gdp":0.646,"life":4.724},{"c":"Armenia","gdp":0.808,"life":4.677},{"c":"Georgia","gdp":0.847,"life":4.673},{"c":"Iran","gdp":1.029,"life":4.672},{"c":"Jordan","gdp":0.785,"life":4.633},{"c":"Mozambique","gdp":0.179,"life":4.624},{"c":"Kenya","gdp":0.476,"life":4.583},{"c":"Namibia","gdp":0.84,"life":4.571},{"c":"Ukraine","gdp":0.78,"life":4.561},{"c":"Liberia","gdp":0.174,"life":4.558},{"c":"State of Palestine","gdp":0.588,"life":4.553},{"c":"Uganda","gdp":0.312,"life":4.432},{"c":"Chad","gdp":0.302,"life":4.423},{"c":"Tunisia","gdp":0.875,"life":4.392},{"c":"Mauritania","gdp":0.54,"life":4.375},{"c":"Sri Lanka","gdp":0.898,"life":4.327},{"c":"DR Congo","gdp":0.062,"life":4.311},{"c":"Swaziland","gdp":0.828,"life":4.308},{"c":"Myanmar","gdp":0.678,"life":4.308},{"c":"Comoros","gdp":0.416,"life":4.289},{"c":"Togo","gdp":0.268,"life":4.187},{"c":"Ethiopia","gdp":0.315,"life":4.186},{"c":"Madagascar","gdp":0.245,"life":4.166},{"c":"Egypt","gdp":0.875,"life":4.151},{"c":"Sierra Leone","gdp":0.241,"life":3.926},{"c":"Burundi","gdp":0,"life":3.775},{"c":"Zambia","gdp":0.537,"life":3.759},{"c":"Haiti","gdp":0.285,"life":3.721},{"c":"Lesotho","gdp":0.455,"life":3.653},{"c":"India","gdp":0.731,"life":3.573},{"c":"Malawi","gdp":0.177,"life":3.538},{"c":"Yemen","gdp":0.393,"life":3.527},{"c":"Botswana","gdp":0.998,"life":3.479},{"c":"Tanzania","gdp":0.457,"life":3.476},{"c":"Central African Republic","gdp":0.041,"life":3.476},{"c":"Rwanda","gdp":0.343,"life":3.312},{"c":"Zimbabwe","gdp":0.426,"life":3.299},{"c":"South Sudan","gdp":0.289,"life":2.817},{"c":"Afghanistan","gdp":0.301,"life":2.567}],"2020":[{"c":"Finland","gdp":1.446,"life":7.842},{"c":"Denmark","gdp":1.502,"life":7.62},{"c":"Switzerland","gdp":1.566,"life":7.571},{"c":"Iceland","gdp":1.482,"life":7.554},{"c":"Netherlands","gdp":1.501,"life":7.464},{"c":"Norway","gdp":1.543,"life":7.392},{"c":"Sweden","gdp":1.478,"life":7.363},{"c":"Luxembourg","gdp":1.751,"life":7.324},{"c":"New Zealand","gdp":1.4,"life":7.277},{"c":"Austria","gdp":1.492,"life":7.268},{"c":"Australia","gdp":1.453,"life":7.183},{"c":"Israel","gdp":1.376,"life":7.157},{"c":"Germany","gdp":1.48,"life":7.155},{"c":"Canada","gdp":1.447,"life":7.103},{"c":"Ireland","gdp":1.644,"life":7.085},{"c":"Costa Rica","gdp":1.134,"life":7.069},{"c":"United Kingdom","gdp":1.423,"life":7.064},{"c":"Czechia","gdp":1.37,"life":6.965},{"c":"United States","gdp":1.533,"life":6.951},{"c":"Belgium","gdp":1.463,"life":6.834},{"c":"France","gdp":1.421,"life":6.69},{"c":"Bahrain","gdp":1.409,"life":6.647},{"c":"Malta","gdp":1.411,"life":6.602},{"c":"Taiwan Province of China","gdp":1.48,"life":6.584},{"c":"United Arab Emirates","gdp":1.555,"life":6.561},{"c":"Saudi Arabia","gdp":1.435,"life":6.494},{"c":"Spain","gdp":1.375,"life":6.491},{"c":"Italy","gdp":1.393,"life":6.483},{"c":"Slovenia","gdp":1.36,"life":6.461},{"c":"Guatemala","gdp":0.845,"life":6.435},{"c":"Uruguay","gdp":1.164,"life":6.431},{"c":"Singapore","gdp":1.695,"life":6.377},{"c":"Kosovo","gdp":0.937,"life":6.372},{"c":"Slovakia","gdp":1.304,"life":6.331},{"c":"Brazil","gdp":1.028,"life":6.33},{"c":"Mexico","gdp":1.126,"life":6.317},{"c":"Jamaica","gdp":0.891,"life":6.309},{"c":"Lithuania","gdp":1.35,"life":6.255},{"c":"Cyprus","gdp":1.377,"life":6.223},{"c":"Estonia","gdp":1.344,"life":6.189},{"c":"Panama","gdp":1.298,"life":6.18},{"c":"Uzbekistan","gdp":0.769,"life":6.179},{"c":"Chile","gdp":1.2,"life":6.172},{"c":"Poland","gdp":1.309,"life":6.166},{"c":"Kazakhstan","gdp":1.23,"life":6.152},{"c":"Romania","gdp":1.275,"life":6.14},{"c":"Kuwait","gdp":1.461,"life":6.106},{"c":"Serbia","gdp":1.101,"life":6.078},{"c":"El Salvador","gdp":0.845,"life":6.061},{"c":"Mauritius","gdp":1.178,"life":6.049},{"c":"Latvia","gdp":1.285,"life":6.032},{"c":"Colombia","gdp":1.021,"life":6.012},{"c":"Hungary","gdp":1.301,"life":5.992},{"c":"Thailand","gdp":1.107,"life":5.985},{"c":"Nicaragua","gdp":0.693,"life":5.972},{"c":"Japan","gdp":1.389,"life":5.94},{"c":"Argentina","gdp":1.162,"life":5.929},{"c":"Portugal","gdp":1.323,"life":5.929},{"c":"Honduras","gdp":0.703,"life":5.919},{"c":"Croatia","gdp":1.251,"life":5.882},{"c":"Philippines","gdp":0.853,"life":5.88},{"c":"Republic of Korea","gdp":1.403,"life":5.845},{"c":"Peru","gdp":0.986,"life":5.84},{"c":"Bosnia and Herzegovina","gdp":1.032,"life":5.813},{"c":"Republic of Moldova","gdp":0.985,"life":5.766},{"c":"Ecuador","gdp":0.935,"life":5.764},{"c":"Kyrgyzstan","gdp":0.665,"life":5.744},{"c":"Greece","gdp":1.273,"life":5.723},{"c":"Bolivia","gdp":0.842,"life":5.716},{"c":"Mongolia","gdp":0.966,"life":5.677},{"c":"Paraguay","gdp":0.983,"life":5.653},{"c":"Montenegro","gdp":1.155,"life":5.581},{"c":"Dominican Republic","gdp":1.106,"life":5.545},{"c":"North Cyprus","gdp":1.377,"life":5.536},{"c":"Belarus","gdp":1.124,"life":5.534},{"c":"Russian Federation","gdp":1.241,"life":5.477},{"c":"Hong Kong SAR of China","gdp":1.525,"life":5.477},{"c":"Tajikistan","gdp":0.508,"life":5.466},{"c":"Viet Nam","gdp":0.817,"life":5.411},{"c":"Libya","gdp":1.044,"life":5.41},{"c":"Malaysia","gdp":1.259,"life":5.384},{"c":"Indonesia","gdp":0.954,"life":5.345},{"c":"Congo","gdp":0.518,"life":5.342},{"c":"China","gdp":1.061,"life":5.339},{"c":"C\u00f4te d\u2019Ivoire","gdp":0.669,"life":5.306},{"c":"Armenia","gdp":0.996,"life":5.283},{"c":"Nepal","gdp":0.519,"life":5.269},{"c":"Bulgaria","gdp":1.181,"life":5.266},{"c":"Maldives","gdp":1.115,"life":5.198},{"c":"Azerbaijan","gdp":1.025,"life":5.171},{"c":"Cameroon","gdp":0.543,"life":5.142},{"c":"Senegal","gdp":0.518,"life":5.132},{"c":"Albania","gdp":1.008,"life":5.117},{"c":"North Macedonia","gdp":1.068,"life":5.101},{"c":"Ghana","gdp":0.68,"life":5.088},{"c":"Niger","gdp":0.162,"life":5.074},{"c":"Turkmenistan","gdp":1.046,"life":5.066},{"c":"Gambia","gdp":0.367,"life":5.051},{"c":"Benin","gdp":0.507,"life":5.045},{"c":"Lao PDR","gdp":0.808,"life":5.03},{"c":"Bangladesh","gdp":0.635,"life":5.025},{"c":"Guinea","gdp":0.42,"life":4.984},{"c":"South Africa","gdp":0.967,"life":4.956},{"c":"T\u00fcrkiye","gdp":1.26,"life":4.948},{"c":"Pakistan","gdp":0.637,"life":4.934},{"c":"Morocco","gdp":0.792,"life":4.918},{"c":"Georgia","gdp":1.03,"life":4.891},{"c":"Algeria","gdp":0.946,"life":4.887},{"c":"Ukraine","gdp":0.979,"life":4.875},{"c":"Iraq","gdp":0.91,"life":4.854},{"c":"Gabon","gdp":1.037,"life":4.852},{"c":"Burkina Faso","gdp":0.364,"life":4.834},{"c":"Cambodia","gdp":0.603,"life":4.83},{"c":"Mozambique","gdp":0.183,"life":4.794},{"c":"Nigeria","gdp":0.663,"life":4.759},{"c":"Mali","gdp":0.387,"life":4.723},{"c":"Iran","gdp":1.03,"life":4.721},{"c":"Uganda","gdp":0.364,"life":4.636},{"c":"Liberia","gdp":0.228,"life":4.625},{"c":"Kenya","gdp":0.603,"life":4.607},{"c":"Tunisia","gdp":0.919,"life":4.596},{"c":"Lebanon","gdp":1.045,"life":4.584},{"c":"Namibia","gdp":0.882,"life":4.574},{"c":"State of Palestine","gdp":0.646,"life":4.517},{"c":"Myanmar","gdp":0.666,"life":4.426},{"c":"Jordan","gdp":0.89,"life":4.395},{"c":"Chad","gdp":0.255,"life":4.355},{"c":"Sri Lanka","gdp":0.99,"life":4.325},{"c":"Swaziland","gdp":0.849,"life":4.308},{"c":"Comoros","gdp":0.488,"life":4.289},{"c":"Egypt","gdp":0.954,"life":4.283},{"c":"Ethiopia","gdp":0.37,"life":4.275},{"c":"Mauritania","gdp":0.666,"life":4.227},{"c":"Madagascar","gdp":0.266,"life":4.208},{"c":"Togo","gdp":0.254,"life":4.107},{"c":"Zambia","gdp":0.528,"life":4.073},{"c":"Sierra Leone","gdp":0.279,"life":3.849},{"c":"India","gdp":0.741,"life":3.819},{"c":"Burundi","gdp":0,"life":3.775},{"c":"Yemen","gdp":0.329,"life":3.658},{"c":"Tanzania","gdp":0.433,"life":3.623},{"c":"Haiti","gdp":0.294,"life":3.615},{"c":"Malawi","gdp":0.113,"life":3.6},{"c":"Lesotho","gdp":0.451,"life":3.512},{"c":"Botswana","gdp":1.099,"life":3.467},{"c":"Rwanda","gdp":0.364,"life":3.415},{"c":"Zimbabwe","gdp":0.457,"life":3.145},{"c":"Afghanistan","gdp":0.37,"life":2.523}],"2021":[{"c":"Finland","gdp":1.892,"life":7.821},{"c":"Denmark","gdp":1.953,"life":7.636},{"c":"Iceland","gdp":1.936,"life":7.557},{"c":"Switzerland","gdp":2.026,"life":7.512},{"c":"Netherlands","gdp":1.945,"life":7.415},{"c":"Luxembourg","gdp":2.209,"life":7.404},{"c":"Sweden","gdp":1.92,"life":7.384},{"c":"Norway","gdp":1.997,"life":7.365},{"c":"Israel","gdp":1.826,"life":7.364},{"c":"New Zealand","gdp":1.852,"life":7.2},{"c":"Austria","gdp":1.931,"life":7.163},{"c":"Australia","gdp":1.9,"life":7.162},{"c":"Ireland","gdp":2.129,"life":7.041},{"c":"Germany","gdp":1.924,"life":7.034},{"c":"Canada","gdp":1.886,"life":7.025},{"c":"United States","gdp":1.982,"life":6.977},{"c":"United Kingdom","gdp":1.867,"life":6.943},{"c":"Czechia","gdp":1.815,"life":6.92},{"c":"Belgium","gdp":1.907,"life":6.805},{"c":"France","gdp":1.863,"life":6.687},{"c":"Bahrain","gdp":1.854,"life":6.647},{"c":"Slovenia","gdp":1.81,"life":6.63},{"c":"Costa Rica","gdp":1.584,"life":6.582},{"c":"United Arab Emirates","gdp":1.998,"life":6.576},{"c":"Saudi Arabia","gdp":1.87,"life":6.523},{"c":"Taiwan Province of China","gdp":1.897,"life":6.512},{"c":"Singapore","gdp":2.149,"life":6.48},{"c":"Romania","gdp":1.719,"life":6.477},{"c":"Spain","gdp":1.808,"life":6.476},{"c":"Uruguay","gdp":1.615,"life":6.474},{"c":"Italy","gdp":1.834,"life":6.467},{"c":"Kosovo","gdp":1.362,"life":6.455},{"c":"Malta","gdp":1.838,"life":6.447},{"c":"Lithuania","gdp":1.804,"life":6.446},{"c":"Slovakia","gdp":1.736,"life":6.391},{"c":"Estonia","gdp":1.793,"life":6.341},{"c":"Panama","gdp":1.715,"life":6.309},{"c":"Brazil","gdp":1.462,"life":6.293},{"c":"Guatemala","gdp":1.274,"life":6.262},{"c":"Kazakhstan","gdp":1.668,"life":6.234},{"c":"Cyprus","gdp":1.815,"life":6.221},{"c":"Latvia","gdp":1.732,"life":6.18},{"c":"Serbia","gdp":1.55,"life":6.178},{"c":"Chile","gdp":1.651,"life":6.172},{"c":"Nicaragua","gdp":1.105,"life":6.165},{"c":"Mexico","gdp":1.552,"life":6.128},{"c":"Croatia","gdp":1.705,"life":6.125},{"c":"Poland","gdp":1.758,"life":6.123},{"c":"El Salvador","gdp":1.265,"life":6.12},{"c":"Kuwait","gdp":1.904,"life":6.106},{"c":"Hungary","gdp":1.748,"life":6.086},{"c":"Mauritius","gdp":1.591,"life":6.071},{"c":"Uzbekistan","gdp":1.219,"life":6.063},{"c":"Japan","gdp":1.835,"life":6.039},{"c":"Honduras","gdp":1.111,"life":6.022},{"c":"Portugal","gdp":1.76,"life":6.016},{"c":"Argentina","gdp":1.592,"life":5.967},{"c":"Greece","gdp":1.703,"life":5.948},{"c":"Republic of Korea","gdp":1.851,"life":5.935},{"c":"Philippines","gdp":1.268,"life":5.904},{"c":"Thailand","gdp":1.535,"life":5.891},{"c":"Republic of Moldova","gdp":1.417,"life":5.857},{"c":"Jamaica","gdp":1.296,"life":5.85},{"c":"Kyrgyzstan","gdp":1.069,"life":5.828},{"c":"Belarus","gdp":1.562,"life":5.821},{"c":"Colombia","gdp":1.452,"life":5.781},{"c":"Bosnia and Herzegovina","gdp":1.468,"life":5.768},{"c":"Mongolia","gdp":1.393,"life":5.761},{"c":"Dominican Republic","gdp":1.538,"life":5.737},{"c":"Malaysia","gdp":1.689,"life":5.711},{"c":"Bolivia","gdp":1.256,"life":5.6},{"c":"China","gdp":1.508,"life":5.585},{"c":"Paraguay","gdp":1.409,"life":5.578},{"c":"Peru","gdp":1.397,"life":5.559},{"c":"Montenegro","gdp":1.573,"life":5.547},{"c":"Ecuador","gdp":1.352,"life":5.533},{"c":"Viet Nam","gdp":1.252,"life":5.485},{"c":"Turkmenistan","gdp":1.484,"life":5.474},{"c":"North Cyprus","gdp":1.815,"life":5.467},{"c":"Russian Federation","gdp":1.685,"life":5.459},{"c":"Hong Kong SAR of China","gdp":1.957,"life":5.425},{"c":"Armenia","gdp":1.434,"life":5.399},{"c":"Tajikistan","gdp":0.966,"life":5.377},{"c":"Nepal","gdp":0.984,"life":5.377},{"c":"Bulgaria","gdp":1.625,"life":5.371},{"c":"Libya","gdp":1.476,"life":5.33},{"c":"Indonesia","gdp":1.382,"life":5.24},{"c":"C\u00f4te d\u2019Ivoire","gdp":1.094,"life":5.235},{"c":"North Macedonia","gdp":1.505,"life":5.199},{"c":"Albania","gdp":1.439,"life":5.199},{"c":"South Africa","gdp":1.425,"life":5.194},{"c":"Azerbaijan","gdp":1.458,"life":5.173},{"c":"Gambia","gdp":0.785,"life":5.164},{"c":"Bangladesh","gdp":1.06,"life":5.155},{"c":"Lao PDR","gdp":1.239,"life":5.14},{"c":"Algeria","gdp":1.363,"life":5.122},{"c":"Liberia","gdp":0.636,"life":5.122},{"c":"Ukraine","gdp":1.411,"life":5.084},{"c":"Congo","gdp":0.95,"life":5.075},{"c":"Morocco","gdp":1.208,"life":5.06},{"c":"Mozambique","gdp":0.578,"life":5.048},{"c":"Cameroon","gdp":0.968,"life":5.048},{"c":"Senegal","gdp":0.933,"life":5.046},{"c":"Niger","gdp":0.57,"life":5.003},{"c":"Georgia","gdp":1.467,"life":4.973},{"c":"Gabon","gdp":1.459,"life":4.958},{"c":"Iraq","gdp":1.289,"life":4.941},{"c":"Guinea","gdp":0.848,"life":4.891},{"c":"Iran","gdp":1.41,"life":4.888},{"c":"Ghana","gdp":1.112,"life":4.872},{"c":"T\u00fcrkiye","gdp":1.707,"life":4.744},{"c":"Burkina Faso","gdp":0.779,"life":4.67},{"c":"Cambodia","gdp":1.019,"life":4.64},{"c":"Benin","gdp":0.932,"life":4.623},{"c":"Comoros","gdp":0.899,"life":4.609},{"c":"Uganda","gdp":0.777,"life":4.603},{"c":"Nigeria","gdp":1.079,"life":4.552},{"c":"Kenya","gdp":1.032,"life":4.543},{"c":"Tunisia","gdp":1.35,"life":4.516},{"c":"Pakistan","gdp":1.049,"life":4.516},{"c":"State of Palestine","gdp":1.148,"life":4.483},{"c":"Mali","gdp":0.792,"life":4.479},{"c":"Namibia","gdp":1.292,"life":4.459},{"c":"Eswatini","gdp":1.274,"life":4.396},{"c":"Myanmar","gdp":1.038,"life":4.394},{"c":"Sri Lanka","gdp":1.415,"life":4.362},{"c":"Madagascar","gdp":0.67,"life":4.339},{"c":"Egypt","gdp":1.388,"life":4.288},{"c":"Chad","gdp":0.662,"life":4.251},{"c":"Ethiopia","gdp":0.788,"life":4.241},{"c":"Yemen","gdp":0.691,"life":4.197},{"c":"Mauritania","gdp":1.1,"life":4.153},{"c":"Jordan","gdp":1.324,"life":4.152},{"c":"Togo","gdp":0.771,"life":4.112},{"c":"India","gdp":1.167,"life":3.777},{"c":"Zambia","gdp":0.93,"life":3.76},{"c":"Malawi","gdp":0.648,"life":3.75},{"c":"Tanzania","gdp":0.848,"life":3.702},{"c":"Sierra Leone","gdp":0.686,"life":3.574},{"c":"Lesotho","gdp":0.839,"life":3.512},{"c":"Botswana","gdp":1.503,"life":3.471},{"c":"Rwanda","gdp":0.785,"life":3.268},{"c":"Zimbabwe","gdp":0.947,"life":2.995},{"c":"Lebanon","gdp":1.392,"life":2.955},{"c":"Afghanistan","gdp":0.758,"life":2.404}],"2022":[{"c":"Finland","gdp":1.888,"life":7.804},{"c":"Denmark","gdp":1.949,"life":7.586},{"c":"Iceland","gdp":1.926,"life":7.53},{"c":"Israel","gdp":1.833,"life":7.473},{"c":"Netherlands","gdp":1.942,"life":7.403},{"c":"Sweden","gdp":1.921,"life":7.395},{"c":"Norway","gdp":1.994,"life":7.315},{"c":"Switzerland","gdp":2.022,"life":7.24},{"c":"Luxembourg","gdp":2.2,"life":7.228},{"c":"New Zealand","gdp":1.842,"life":7.123},{"c":"Austria","gdp":1.927,"life":7.097},{"c":"Australia","gdp":1.899,"life":7.095},{"c":"Canada","gdp":1.881,"life":6.961},{"c":"Ireland","gdp":2.152,"life":6.911},{"c":"United States","gdp":1.98,"life":6.894},{"c":"Germany","gdp":1.919,"life":6.892},{"c":"Belgium","gdp":1.907,"life":6.859},{"c":"Czechia","gdp":1.823,"life":6.845},{"c":"United Kingdom","gdp":1.857,"life":6.796},{"c":"Lithuania","gdp":1.808,"life":6.763},{"c":"France","gdp":1.856,"life":6.661},{"c":"Slovenia","gdp":1.815,"life":6.65},{"c":"Costa Rica","gdp":1.587,"life":6.609},{"c":"Romania","gdp":1.726,"life":6.589},{"c":"Singapore","gdp":2.168,"life":6.587},{"c":"United Arab Emirates","gdp":2.015,"life":6.571},{"c":"Taiwan Province of China","gdp":1.89,"life":6.535},{"c":"Uruguay","gdp":1.617,"life":6.494},{"c":"Slovakia","gdp":1.731,"life":6.469},{"c":"Saudi Arabia","gdp":1.861,"life":6.463},{"c":"Estonia","gdp":1.798,"life":6.455},{"c":"Spain","gdp":1.798,"life":6.436},{"c":"Italy","gdp":1.832,"life":6.405},{"c":"Kosovo","gdp":1.374,"life":6.368},{"c":"Chile","gdp":1.645,"life":6.334},{"c":"Mexico","gdp":1.55,"life":6.33},{"c":"Malta","gdp":1.841,"life":6.3},{"c":"Panama","gdp":1.714,"life":6.265},{"c":"Poland","gdp":1.767,"life":6.26},{"c":"Nicaragua","gdp":1.109,"life":6.259},{"c":"Latvia","gdp":1.737,"life":6.213},{"c":"Bahrain","gdp":1.883,"life":6.173},{"c":"Guatemala","gdp":1.287,"life":6.15},{"c":"Kazakhstan","gdp":1.664,"life":6.144},{"c":"Serbia","gdp":1.552,"life":6.144},{"c":"Cyprus","gdp":1.824,"life":6.13},{"c":"Japan","gdp":1.825,"life":6.129},{"c":"Croatia","gdp":1.727,"life":6.125},{"c":"Brazil","gdp":1.454,"life":6.125},{"c":"El Salvador","gdp":1.278,"life":6.122},{"c":"Hungary","gdp":1.754,"life":6.041},{"c":"Argentina","gdp":1.59,"life":6.024},{"c":"Honduras","gdp":1.115,"life":6.023},{"c":"Uzbekistan","gdp":1.227,"life":6.014},{"c":"Malaysia","gdp":1.665,"life":6.012},{"c":"Portugal","gdp":1.758,"life":5.968},{"c":"Republic of Korea","gdp":1.853,"life":5.951},{"c":"Greece","gdp":1.708,"life":5.931},{"c":"Mauritius","gdp":1.589,"life":5.902},{"c":"Thailand","gdp":1.515,"life":5.843},{"c":"Mongolia","gdp":1.379,"life":5.84},{"c":"Kyrgyzstan","gdp":1.061,"life":5.825},{"c":"Republic of Moldova","gdp":1.425,"life":5.819},{"c":"China","gdp":1.51,"life":5.818},{"c":"Viet Nam","gdp":1.349,"life":5.763},{"c":"Paraguay","gdp":1.428,"life":5.738},{"c":"Montenegro","gdp":1.537,"life":5.722},{"c":"Jamaica","gdp":1.305,"life":5.703},{"c":"Bolivia","gdp":1.24,"life":5.684},{"c":"Russian Federation","gdp":1.68,"life":5.661},{"c":"Bosnia and Herzegovina","gdp":1.467,"life":5.633},{"c":"Colombia","gdp":1.455,"life":5.63},{"c":"Dominican Republic","gdp":1.536,"life":5.569},{"c":"Ecuador","gdp":1.343,"life":5.559},{"c":"Peru","gdp":1.39,"life":5.526},{"c":"Philippines","gdp":1.238,"life":5.523},{"c":"Bulgaria","gdp":1.635,"life":5.466},{"c":"Nepal","gdp":0.979,"life":5.36},{"c":"Armenia","gdp":1.466,"life":5.342},{"c":"Tajikistan","gdp":0.972,"life":5.33},{"c":"Algeria","gdp":1.353,"life":5.329},{"c":"Hong Kong SAR of China","gdp":1.951,"life":5.308},{"c":"Albania","gdp":1.449,"life":5.277},{"c":"Indonesia","gdp":1.384,"life":5.277},{"c":"South Africa","gdp":1.417,"life":5.275},{"c":"Congo","gdp":0.921,"life":5.267},{"c":"North Macedonia","gdp":1.498,"life":5.254},{"c":"Lao PDR","gdp":1.232,"life":5.111},{"c":"Georgia","gdp":1.477,"life":5.109},{"c":"Guinea","gdp":0.844,"life":5.072},{"c":"Ukraine","gdp":1.358,"life":5.071},{"c":"C\u00f4te d\u2019Ivoire","gdp":1.094,"life":5.053},{"c":"Gabon","gdp":1.438,"life":5.035},{"c":"Nigeria","gdp":1.065,"life":4.981},{"c":"Cameroon","gdp":0.965,"life":4.973},{"c":"Mozambique","gdp":0.57,"life":4.954},{"c":"Iraq","gdp":1.281,"life":4.941},{"c":"State of Palestine","gdp":1.144,"life":4.908},{"c":"Morocco","gdp":1.236,"life":4.903},{"c":"Iran","gdp":1.465,"life":4.876},{"c":"Senegal","gdp":0.943,"life":4.855},{"c":"Mauritania","gdp":1.099,"life":4.724},{"c":"Burkina Faso","gdp":0.768,"life":4.638},{"c":"Namibia","gdp":1.289,"life":4.631},{"c":"T\u00fcrkiye","gdp":1.714,"life":4.614},{"c":"Ghana","gdp":1.101,"life":4.605},{"c":"Pakistan","gdp":1.081,"life":4.555},{"c":"Niger","gdp":0.561,"life":4.501},{"c":"Tunisia","gdp":1.333,"life":4.497},{"c":"Kenya","gdp":1.051,"life":4.487},{"c":"Sri Lanka","gdp":1.422,"life":4.442},{"c":"Uganda","gdp":0.785,"life":4.432},{"c":"Chad","gdp":0.622,"life":4.397},{"c":"Cambodia","gdp":1.025,"life":4.393},{"c":"Benin","gdp":0.924,"life":4.374},{"c":"Myanmar","gdp":1.032,"life":4.372},{"c":"Bangladesh","gdp":1.133,"life":4.282},{"c":"Gambia","gdp":0.761,"life":4.279},{"c":"Mali","gdp":0.763,"life":4.198},{"c":"Egypt","gdp":1.377,"life":4.17},{"c":"Togo","gdp":0.77,"life":4.137},{"c":"Jordan","gdp":1.292,"life":4.12},{"c":"Ethiopia","gdp":0.793,"life":4.091},{"c":"Liberia","gdp":0.628,"life":4.042},{"c":"India","gdp":1.159,"life":4.036},{"c":"Madagascar","gdp":0.632,"life":4.019},{"c":"Zambia","gdp":0.914,"life":3.982},{"c":"Tanzania","gdp":0.836,"life":3.694},{"c":"Comoros","gdp":0.914,"life":3.545},{"c":"Malawi","gdp":0.637,"life":3.495},{"c":"Botswana","gdp":1.471,"life":3.435},{"c":"DR Congo","gdp":0.531,"life":3.207},{"c":"Zimbabwe","gdp":0.758,"life":3.204},{"c":"Sierra Leone","gdp":0.67,"life":3.138},{"c":"Lebanon","gdp":1.417,"life":2.392},{"c":"Afghanistan","gdp":0.645,"life":1.859}],"2023":[{"c":"Finland","gdp":1.844,"life":7.741},{"c":"Denmark","gdp":1.908,"life":7.583},{"c":"Iceland","gdp":1.881,"life":7.525},{"c":"Sweden","gdp":1.878,"life":7.344},{"c":"Israel","gdp":1.803,"life":7.341},{"c":"Netherlands","gdp":1.901,"life":7.319},{"c":"Norway","gdp":1.952,"life":7.302},{"c":"Luxembourg","gdp":2.141,"life":7.122},{"c":"Switzerland","gdp":1.97,"life":7.06},{"c":"Australia","gdp":1.854,"life":7.057},{"c":"New Zealand","gdp":1.81,"life":7.029},{"c":"Costa Rica","gdp":1.561,"life":6.955},{"c":"Kuwait","gdp":1.845,"life":6.951},{"c":"Austria","gdp":1.885,"life":6.905},{"c":"Canada","gdp":1.84,"life":6.9},{"c":"Belgium","gdp":1.868,"life":6.894},{"c":"Ireland","gdp":2.129,"life":6.838},{"c":"Czechia","gdp":1.783,"life":6.822},{"c":"Lithuania","gdp":1.766,"life":6.818},{"c":"United Kingdom","gdp":1.822,"life":6.749},{"c":"Slovenia","gdp":1.786,"life":6.743},{"c":"United Arab Emirates","gdp":1.983,"life":6.733},{"c":"United States","gdp":1.939,"life":6.725},{"c":"Germany","gdp":1.871,"life":6.719},{"c":"Mexico","gdp":1.521,"life":6.678},{"c":"Uruguay","gdp":1.596,"life":6.611},{"c":"France","gdp":1.818,"life":6.609},{"c":"Saudi Arabia","gdp":1.842,"life":6.594},{"c":"Kosovo","gdp":1.364,"life":6.561},{"c":"Singapore","gdp":2.118,"life":6.523},{"c":"Taiwan Province of China","gdp":1.842,"life":6.503},{"c":"Romania","gdp":1.699,"life":6.491},{"c":"El Salvador","gdp":1.265,"life":6.469},{"c":"Estonia","gdp":1.752,"life":6.448},{"c":"Poland","gdp":1.738,"life":6.442},{"c":"Spain","gdp":1.766,"life":6.421},{"c":"Serbia","gdp":1.538,"life":6.411},{"c":"Chile","gdp":1.616,"life":6.36},{"c":"Panama","gdp":1.702,"life":6.358},{"c":"Malta","gdp":1.827,"life":6.346},{"c":"Italy","gdp":1.8,"life":6.324},{"c":"Guatemala","gdp":1.26,"life":6.287},{"c":"Nicaragua","gdp":1.097,"life":6.284},{"c":"Brazil","gdp":1.43,"life":6.272},{"c":"Slovakia","gdp":1.706,"life":6.257},{"c":"Latvia","gdp":1.7,"life":6.234},{"c":"Uzbekistan","gdp":1.212,"life":6.195},{"c":"Argentina","gdp":1.562,"life":6.188},{"c":"Kazakhstan","gdp":1.622,"life":6.188},{"c":"Cyprus","gdp":1.794,"life":6.068},{"c":"Japan","gdp":1.786,"life":6.06},{"c":"Republic of Korea","gdp":1.815,"life":6.058},{"c":"Philippines","gdp":1.232,"life":6.048},{"c":"Viet Nam","gdp":1.331,"life":6.043},{"c":"Portugal","gdp":1.728,"life":6.03},{"c":"Hungary","gdp":1.722,"life":6.017},{"c":"Paraguay","gdp":1.398,"life":5.977},{"c":"Thailand","gdp":1.484,"life":5.976},{"c":"Malaysia","gdp":1.646,"life":5.975},{"c":"China","gdp":1.497,"life":5.973},{"c":"Honduras","gdp":1.091,"life":5.968},{"c":"Croatia","gdp":1.71,"life":5.942},{"c":"Greece","gdp":1.684,"life":5.934},{"c":"Bosnia and Herzegovina","gdp":1.465,"life":5.877},{"c":"Libya","gdp":1.526,"life":5.866},{"c":"Jamaica","gdp":1.28,"life":5.842},{"c":"Peru","gdp":1.371,"life":5.841},{"c":"Dominican Republic","gdp":1.517,"life":5.823},{"c":"Mauritius","gdp":1.57,"life":5.816},{"c":"Republic of Moldova","gdp":1.385,"life":5.816},{"c":"Russian Federation","gdp":1.642,"life":5.785},{"c":"Bolivia","gdp":1.217,"life":5.784},{"c":"Ecuador","gdp":1.315,"life":5.725},{"c":"Kyrgyzstan","gdp":1.054,"life":5.714},{"c":"Montenegro","gdp":1.571,"life":5.707},{"c":"Mongolia","gdp":1.353,"life":5.696},{"c":"Colombia","gdp":1.437,"life":5.695},{"c":"Indonesia","gdp":1.361,"life":5.568},{"c":"Bulgaria","gdp":1.629,"life":5.463},{"c":"Armenia","gdp":1.444,"life":5.455},{"c":"South Africa","gdp":1.389,"life":5.422},{"c":"North Macedonia","gdp":1.475,"life":5.369},{"c":"Algeria","gdp":1.324,"life":5.364},{"c":"Hong Kong SAR of China","gdp":1.909,"life":5.316},{"c":"Albania","gdp":1.438,"life":5.304},{"c":"Congo","gdp":0.892,"life":5.221},{"c":"Mozambique","gdp":0.56,"life":5.216},{"c":"Georgia","gdp":1.467,"life":5.185},{"c":"Iraq","gdp":1.249,"life":5.166},{"c":"Nepal","gdp":0.965,"life":5.158},{"c":"Lao PDR","gdp":1.208,"life":5.139},{"c":"Gabon","gdp":1.403,"life":5.106},{"c":"C\u00f4te d\u2019Ivoire","gdp":1.08,"life":5.08},{"c":"Guinea","gdp":0.831,"life":5.023},{"c":"T\u00fcrkiye","gdp":1.702,"life":4.975},{"c":"Senegal","gdp":0.927,"life":4.969},{"c":"Iran","gdp":1.435,"life":4.923},{"c":"Azerbaijan","gdp":1.433,"life":4.893},{"c":"Nigeria","gdp":1.042,"life":4.881},{"c":"Cameroon","gdp":0.943,"life":4.874},{"c":"Ukraine","gdp":1.35,"life":4.873},{"c":"Namibia","gdp":1.266,"life":4.832},{"c":"Morocco","gdp":1.213,"life":4.795},{"c":"Pakistan","gdp":1.069,"life":4.657},{"c":"Niger","gdp":0.573,"life":4.556},{"c":"Burkina Faso","gdp":0.756,"life":4.548},{"c":"Mauritania","gdp":1.078,"life":4.505},{"c":"Gambia","gdp":0.75,"life":4.485},{"c":"Chad","gdp":0.603,"life":4.471},{"c":"Kenya","gdp":1.037,"life":4.47},{"c":"Tunisia","gdp":1.306,"life":4.422},{"c":"Benin","gdp":0.914,"life":4.377},{"c":"Uganda","gdp":0.772,"life":4.372},{"c":"Myanmar","gdp":0.978,"life":4.354},{"c":"Cambodia","gdp":1.011,"life":4.341},{"c":"Ghana","gdp":1.077,"life":4.289},{"c":"Liberia","gdp":0.619,"life":4.269},{"c":"Mali","gdp":0.747,"life":4.232},{"c":"Madagascar","gdp":0.628,"life":4.228},{"c":"Togo","gdp":0.758,"life":4.214},{"c":"Jordan","gdp":1.262,"life":4.186},{"c":"India","gdp":1.166,"life":4.054},{"c":"Egypt","gdp":1.37,"life":3.977},{"c":"Sri Lanka","gdp":1.361,"life":3.898},{"c":"Bangladesh","gdp":1.122,"life":3.886},{"c":"Ethiopia","gdp":0.792,"life":3.861},{"c":"Tanzania","gdp":0.82,"life":3.781},{"c":"Comoros","gdp":0.896,"life":3.566},{"c":"Yemen","gdp":0.671,"life":3.561},{"c":"Zambia","gdp":0.899,"life":3.502},{"c":"Eswatini","gdp":1.255,"life":3.502},{"c":"Malawi","gdp":0.617,"life":3.421},{"c":"Botswana","gdp":1.445,"life":3.383},{"c":"Zimbabwe","gdp":0.748,"life":3.341},{"c":"DR Congo","gdp":0.534,"life":3.295},{"c":"Sierra Leone","gdp":0.654,"life":3.245},{"c":"Lesotho","gdp":0.771,"life":3.186},{"c":"Lebanon","gdp":1.377,"life":2.707},{"c":"Afghanistan","gdp":0.628,"life":1.721}],"2024":[{"c":"Finland","gdp":1.749,"life":7.736},{"c":"Denmark","gdp":1.825,"life":7.521},{"c":"Iceland","gdp":1.799,"life":7.515},{"c":"Sweden","gdp":1.783,"life":7.345},{"c":"Netherlands","gdp":1.822,"life":7.306},{"c":"Costa Rica","gdp":1.492,"life":7.274},{"c":"Norway","gdp":1.902,"life":7.262},{"c":"Israel","gdp":1.695,"life":7.234},{"c":"Luxembourg","gdp":2.028,"life":7.122},{"c":"Mexico","gdp":1.435,"life":6.979},{"c":"Australia","gdp":1.767,"life":6.974},{"c":"New Zealand","gdp":1.698,"life":6.952},{"c":"Switzerland","gdp":1.87,"life":6.935},{"c":"Belgium","gdp":1.783,"life":6.91},{"c":"Ireland","gdp":1.988,"life":6.889},{"c":"Lithuania","gdp":1.684,"life":6.829},{"c":"Austria","gdp":1.791,"life":6.81},{"c":"Canada","gdp":1.749,"life":6.803},{"c":"Slovenia","gdp":1.692,"life":6.792},{"c":"Czechia","gdp":1.692,"life":6.775},{"c":"United Arab Emirates","gdp":1.812,"life":6.759},{"c":"Germany","gdp":1.785,"life":6.753},{"c":"United Kingdom","gdp":1.725,"life":6.728},{"c":"United States","gdp":1.839,"life":6.724},{"c":"Belize","gdp":1.256,"life":6.711},{"c":"Poland","gdp":1.666,"life":6.673},{"c":"Taiwan Province of China","gdp":1.73,"life":6.669},{"c":"Uruguay","gdp":1.554,"life":6.661},{"c":"Kosovo","gdp":1.281,"life":6.659},{"c":"Kuwait","gdp":1.691,"life":6.629},{"c":"Serbia","gdp":1.489,"life":6.606},{"c":"Saudi Arabia","gdp":1.743,"life":6.6},{"c":"France","gdp":1.733,"life":6.593},{"c":"Singapore","gdp":2.022,"life":6.565},{"c":"Romania","gdp":1.636,"life":6.563},{"c":"Brazil","gdp":1.391,"life":6.494},{"c":"El Salvador","gdp":1.222,"life":6.492},{"c":"Spain","gdp":1.69,"life":6.466},{"c":"Estonia","gdp":1.65,"life":6.417},{"c":"Italy","gdp":1.724,"life":6.415},{"c":"Panama","gdp":1.594,"life":6.407},{"c":"Argentina","gdp":1.504,"life":6.397},{"c":"Kazakhstan","gdp":1.586,"life":6.378},{"c":"Guatemala","gdp":1.249,"life":6.362},{"c":"Chile","gdp":1.537,"life":6.361},{"c":"Viet Nam","gdp":1.278,"life":6.352},{"c":"Nicaragua","gdp":1.084,"life":6.33},{"c":"Malta","gdp":1.76,"life":6.316},{"c":"Thailand","gdp":1.426,"life":6.222},{"c":"Slovakia","gdp":1.629,"life":6.221},{"c":"Latvia","gdp":1.619,"life":6.207},{"c":"Oman","gdp":1.603,"life":6.197},{"c":"Uzbekistan","gdp":1.179,"life":6.193},{"c":"Paraguay","gdp":1.329,"life":6.172},{"c":"Japan","gdp":1.678,"life":6.147},{"c":"Bosnia and Herzegovina","gdp":1.405,"life":6.136},{"c":"Philippines","gdp":1.177,"life":6.107},{"c":"Republic of Korea","gdp":1.709,"life":6.038},{"c":"Bahrain","gdp":1.752,"life":6.03},{"c":"Portugal","gdp":1.646,"life":6.013},{"c":"Colombia","gdp":1.38,"life":6.004},{"c":"Ecuador","gdp":1.299,"life":5.965},{"c":"Honduras","gdp":1.036,"life":5.964},{"c":"Malaysia","gdp":1.571,"life":5.955},{"c":"Peru","gdp":1.323,"life":5.947},{"c":"Russian Federation","gdp":1.63,"life":5.945},{"c":"Cyprus","gdp":1.72,"life":5.942},{"c":"China","gdp":1.445,"life":5.921},{"c":"Hungary","gdp":1.638,"life":5.915},{"c":"Trinidad and Tobago","gdp":1.549,"life":5.905},{"c":"Montenegro","gdp":1.507,"life":5.877},{"c":"Croatia","gdp":1.644,"life":5.87},{"c":"Jamaica","gdp":1.182,"life":5.87},{"c":"Bolivia","gdp":1.173,"life":5.868},{"c":"Kyrgyzstan","gdp":1.032,"life":5.858},{"c":"Dominican Republic","gdp":1.457,"life":5.846},{"c":"Mongolia","gdp":1.336,"life":5.833},{"c":"Mauritius","gdp":1.499,"life":5.832},{"c":"Libya","gdp":1.247,"life":5.82},{"c":"Republic of Moldova","gdp":1.332,"life":5.819},{"c":"Greece","gdp":1.608,"life":5.776},{"c":"Indonesia","gdp":1.288,"life":5.617},{"c":"Algeria","gdp":1.315,"life":5.571},{"c":"Bulgaria","gdp":1.573,"life":5.554},{"c":"North Macedonia","gdp":1.458,"life":5.503},{"c":"Armenia","gdp":1.391,"life":5.494},{"c":"Hong Kong SAR of China","gdp":1.79,"life":5.491},{"c":"Albania","gdp":1.371,"life":5.411},{"c":"Tajikistan","gdp":0.914,"life":5.411},{"c":"Georgia","gdp":1.444,"life":5.4},{"c":"Nepal","gdp":0.944,"life":5.311},{"c":"Lao PDR","gdp":1.122,"life":5.301},{"c":"T\u00fcrkiye","gdp":1.582,"life":5.262},{"c":"South Africa","gdp":1.283,"life":5.213},{"c":"Mozambique","gdp":0.559,"life":5.19},{"c":"Gabon","gdp":1.386,"life":5.12},{"c":"C\u00f4te d\u2019Ivoire","gdp":1.038,"life":5.102},{"c":"Iran","gdp":1.33,"life":5.093},{"c":"Congo","gdp":1.023,"life":5.03},{"c":"Iraq","gdp":1.261,"life":4.976},{"c":"Guinea","gdp":0.873,"life":4.929},{"c":"Namibia","gdp":1.182,"life":4.911},{"c":"Cameroon","gdp":0.944,"life":4.887},{"c":"Nigeria","gdp":0.989,"life":4.885},{"c":"Azerbaijan","gdp":1.428,"life":4.875},{"c":"Senegal","gdp":0.907,"life":4.856},{"c":"State of Palestine","gdp":1.047,"life":4.78},{"c":"Pakistan","gdp":0.982,"life":4.768},{"c":"Niger","gdp":0.606,"life":4.725},{"c":"Ukraine","gdp":1.328,"life":4.68},{"c":"Morocco","gdp":1.139,"life":4.622},{"c":"Tunisia","gdp":1.257,"life":4.552},{"c":"Mauritania","gdp":1.023,"life":4.542},{"c":"Kenya","gdp":0.994,"life":4.51},{"c":"Uganda","gdp":0.762,"life":4.461},{"c":"Gambia","gdp":0.778,"life":4.423},{"c":"India","gdp":1.149,"life":4.389},{"c":"Chad","gdp":0.592,"life":4.384},{"c":"Burkina Faso","gdp":0.724,"life":4.383},{"c":"Benin","gdp":0.855,"life":4.357},{"c":"Somalia","gdp":0.535,"life":4.347},{"c":"Mali","gdp":0.709,"life":4.345},{"c":"Cambodia","gdp":1.049,"life":4.341},{"c":"Ghana","gdp":1.053,"life":4.34},{"c":"Myanmar","gdp":0.975,"life":4.321},{"c":"Togo","gdp":0.757,"life":4.315},{"c":"Jordan","gdp":1.158,"life":4.31},{"c":"Liberia","gdp":0.582,"life":4.277},{"c":"Madagascar","gdp":0.588,"life":4.157},{"c":"Zambia","gdp":0.848,"life":3.912},{"c":"Ethiopia","gdp":0.757,"life":3.898},{"c":"Sri Lanka","gdp":1.271,"life":3.891},{"c":"Bangladesh","gdp":1.116,"life":3.851},{"c":"Egypt","gdp":1.347,"life":3.817},{"c":"Tanzania","gdp":0.847,"life":3.8},{"c":"Eswatini","gdp":1.183,"life":3.774},{"c":"Lesotho","gdp":0.737,"life":3.757},{"c":"Comoros","gdp":0.835,"life":3.754},{"c":"Yemen","gdp":0.631,"life":3.561},{"c":"DR Congo","gdp":0.544,"life":3.469},{"c":"Botswana","gdp":1.388,"life":3.438},{"c":"Zimbabwe","gdp":0.827,"life":3.396},{"c":"Malawi","gdp":0.588,"life":3.26},{"c":"Lebanon","gdp":1.223,"life":3.188},{"c":"Sierra Leone","gdp":0.786,"life":2.998},{"c":"Afghanistan","gdp":0.649,"life":1.364}],"2025":[{"c":"Finland","gdp":1.915,"life":7.764},{"c":"Iceland","gdp":1.971,"life":7.54},{"c":"Denmark","gdp":1.986,"life":7.539},{"c":"Costa Rica","gdp":1.697,"life":7.439},{"c":"Sweden","gdp":1.95,"life":7.255},{"c":"Norway","gdp":2.057,"life":7.242},{"c":"Netherlands","gdp":1.983,"life":7.223},{"c":"Israel","gdp":1.867,"life":7.187},{"c":"Luxembourg","gdp":2.162,"life":7.063},{"c":"Switzerland","gdp":2.028,"life":7.018},{"c":"New Zealand","gdp":1.876,"life":6.995},{"c":"Mexico","gdp":1.636,"life":6.972},{"c":"Ireland","gdp":2.146,"life":6.928},{"c":"Belgium","gdp":1.951,"life":6.926},{"c":"Australia","gdp":1.937,"life":6.916},{"c":"Kosovo","gdp":1.535,"life":6.91},{"c":"Germany","gdp":1.948,"life":6.882},{"c":"Slovenia","gdp":1.872,"life":6.868},{"c":"Austria","gdp":1.954,"life":6.845},{"c":"Czechia","gdp":1.869,"life":6.821},{"c":"United Arab Emirates","gdp":1.98,"life":6.821},{"c":"Saudi Arabia","gdp":1.949,"life":6.817},{"c":"United States","gdp":2.002,"life":6.816},{"c":"Poland","gdp":1.851,"life":6.768},{"c":"Canada","gdp":1.917,"life":6.741},{"c":"Taiwan Province of China","gdp":1.959,"life":6.714},{"c":"Belize","gdp":1.471,"life":6.711},{"c":"Lithuania","gdp":1.863,"life":6.704},{"c":"United Kingdom","gdp":1.896,"life":6.694},{"c":"Serbia","gdp":1.696,"life":6.691},{"c":"Uruguay","gdp":1.748,"life":6.635},{"c":"Brazil","gdp":1.602,"life":6.634},{"c":"Kazakhstan","gdp":1.782,"life":6.633},{"c":"Romania","gdp":1.818,"life":6.629},{"c":"France","gdp":1.907,"life":6.586},{"c":"Singapore","gdp":2.167,"life":6.585},{"c":"El Salvador","gdp":1.448,"life":6.578},{"c":"Italy","gdp":1.899,"life":6.574},{"c":"Panama","gdp":1.787,"life":6.547},{"c":"Kuwait","gdp":1.862,"life":6.543},{"c":"Spain","gdp":1.871,"life":6.54},{"c":"Guatemala","gdp":1.472,"life":6.533},{"c":"Malta","gdp":1.942,"life":6.436},{"c":"Argentina","gdp":1.7,"life":6.43},{"c":"Viet Nam","gdp":1.51,"life":6.428},{"c":"Estonia","gdp":1.824,"life":6.41},{"c":"Bosnia and Herzegovina","gdp":1.616,"life":6.381},{"c":"Latvia","gdp":1.797,"life":6.365},{"c":"Jamaica","gdp":1.445,"life":6.305},{"c":"Chile","gdp":1.73,"life":6.302},{"c":"Nicaragua","gdp":1.32,"life":6.301},{"c":"Thailand","gdp":1.632,"life":6.296},{"c":"Uzbekistan","gdp":1.415,"life":6.283},{"c":"Slovakia","gdp":1.815,"life":6.255},{"c":"Bahrain","gdp":1.93,"life":6.254},{"c":"Philippines","gdp":1.413,"life":6.206},{"c":"Paraguay","gdp":1.547,"life":6.198},{"c":"Oman","gdp":1.789,"life":6.197},{"c":"Ecuador","gdp":1.505,"life":6.144},{"c":"Montenegro","gdp":1.709,"life":6.139},{"c":"Japan","gdp":1.858,"life":6.13},{"c":"Cyprus","gdp":1.892,"life":6.126},{"c":"Honduras","gdp":1.277,"life":6.096},{"c":"Dominican Republic","gdp":1.664,"life":6.093},{"c":"China","gdp":1.662,"life":6.074},{"c":"Kyrgyzstan","gdp":1.296,"life":6.049},{"c":"Republic of Korea","gdp":1.906,"life":6.04},{"c":"Colombia","gdp":1.586,"life":6.04},{"c":"Portugal","gdp":1.83,"life":6.029},{"c":"Croatia","gdp":1.834,"life":6.009},{"c":"Malaysia","gdp":1.766,"life":6.005},{"c":"Peru","gdp":1.535,"life":5.974},{"c":"Mauritius","gdp":1.707,"life":5.939},{"c":"Hungary","gdp":1.819,"life":5.937},{"c":"Mongolia","gdp":1.558,"life":5.936},{"c":"Trinidad and Tobago","gdp":1.748,"life":5.905},{"c":"Republic of Moldova","gdp":1.55,"life":5.851},{"c":"Bolivia","gdp":1.442,"life":5.835},{"c":"Russian Federation","gdp":1.821,"life":5.834},{"c":"Libya","gdp":1.48,"life":5.731},{"c":"North Macedonia","gdp":1.665,"life":5.719},{"c":"Algeria","gdp":1.535,"life":5.714},{"c":"Bulgaria","gdp":1.768,"life":5.703},{"c":"Greece","gdp":1.795,"life":5.697},{"c":"Albania","gdp":1.631,"life":5.662},{"c":"Indonesia","gdp":1.512,"life":5.617},{"c":"Tajikistan","gdp":1.18,"life":5.591},{"c":"Armenia","gdp":1.608,"life":5.584},{"c":"Hong Kong SAR of China","gdp":1.96,"life":5.569},{"c":"Georgia","gdp":1.669,"life":5.517},{"c":"Lao PDR","gdp":1.357,"life":5.515},{"c":"Mozambique","gdp":0.839,"life":5.336},{"c":"T\u00fcrkiye","gdp":1.785,"life":5.3},{"c":"Iraq","gdp":1.477,"life":5.212},{"c":"Gabon","gdp":1.591,"life":5.167},{"c":"Iran","gdp":1.565,"life":5.151},{"c":"C\u00f4te d\u2019Ivoire","gdp":1.285,"life":5.148},{"c":"Nepal","gdp":1.2,"life":5.147},{"c":"Cameroon","gdp":1.191,"life":5.083},{"c":"South Africa","gdp":1.494,"life":5.009},{"c":"Azerbaijan","gdp":1.636,"life":4.993},{"c":"Niger","gdp":0.89,"life":4.94},{"c":"Pakistan","gdp":1.224,"life":4.868},{"c":"Tunisia","gdp":1.475,"life":4.798},{"c":"Nigeria","gdp":1.335,"life":4.788},{"c":"Senegal","gdp":1.164,"life":4.787},{"c":"Namibia","gdp":1.41,"life":4.781},{"c":"State of Palestine","gdp":1.242,"life":4.694},{"c":"Kenya","gdp":1.242,"life":4.674},{"c":"Ukraine","gdp":1.547,"life":4.658},{"c":"Morocco","gdp":1.376,"life":4.646},{"c":"Guinea","gdp":1.132,"life":4.609},{"c":"Mali","gdp":1.036,"life":4.588},{"c":"Ghana","gdp":1.297,"life":4.554},{"c":"India","gdp":1.397,"life":4.536},{"c":"Somalia","gdp":0.818,"life":4.508},{"c":"Uganda","gdp":1.032,"life":4.491},{"c":"Jordan","gdp":1.388,"life":4.478},{"c":"Mauritania","gdp":1.272,"life":4.473},{"c":"Cambodia","gdp":1.295,"life":4.462},{"c":"Congo","gdp":1.259,"life":4.456},{"c":"Burkina Faso","gdp":0.995,"life":4.455},{"c":"Benin","gdp":1.122,"life":4.393},{"c":"Chad","gdp":0.979,"life":4.385},{"c":"Lesotho","gdp":1.007,"life":4.375},{"c":"Bangladesh","gdp":1.353,"life":4.319},{"c":"Gambia","gdp":1.05,"life":4.306},{"c":"Myanmar","gdp":1.211,"life":4.287},{"c":"Liberia","gdp":0.867,"life":4.28},{"c":"Togo","gdp":1.039,"life":4.277},{"c":"Madagascar","gdp":0.867,"life":4.174},{"c":"Zambia","gdp":1.109,"life":4.106},{"c":"Sri Lanka","gdp":1.496,"life":4.013},{"c":"Ethiopia","gdp":1.033,"life":3.985},{"c":"Comoros","gdp":1.089,"life":3.925},{"c":"Eswatini","gdp":1.41,"life":3.909},{"c":"Tanzania","gdp":1.108,"life":3.902},{"c":"Egypt","gdp":1.558,"life":3.862},{"c":"DR Congo","gdp":0.857,"life":3.761},{"c":"Lebanon","gdp":1.428,"life":3.723},{"c":"Yemen","gdp":0.692,"life":3.532},{"c":"Botswana","gdp":1.582,"life":3.464},{"c":"Zimbabwe","gdp":1.213,"life":3.346},{"c":"Malawi","gdp":0.864,"life":3.284},{"c":"Sierra Leone","gdp":1.054,"life":3.251},{"c":"Afghanistan","gdp":0.921,"life":1.446}]};
+const REG  = {"2019":{"m":2.3149,"b":3.4634,"r2":0.601,"n":152},"2020":{"m":2.0935,"b":3.4897,"r2":0.6236,"n":148},"2021":{"m":2.0967,"b":2.5803,"r2":0.6117,"n":145},"2022":{"m":2.2205,"b":2.3951,"r2":0.656,"n":136},"2023":{"m":2.3163,"b":2.3137,"r2":0.6419,"n":139},"2024":{"m":2.4394,"b":2.3386,"r2":0.6349,"n":146},"2025":{"m":2.6523,"b":1.5502,"r2":0.6359,"n":146}};
+const WAVG = {"2019":{"gdp":0.869,"soc":1.154,"hea":0.692,"fre":0.465,"gen":0.19,"cor":0.131,"life":5.476,"n":152},"2020":{"gdp":0.978,"soc":0.793,"hea":0.52,"fre":0.5,"gen":0.179,"cor":0.136,"life":5.537,"n":148},"2021":{"gdp":1.42,"soc":0.905,"hea":0.586,"fre":0.519,"gen":0.147,"cor":0.155,"life":5.558,"n":145},"2022":{"gdp":1.419,"soc":1.154,"hea":0.366,"fre":0.542,"gen":0.149,"cor":0.147,"life":5.547,"n":135},"2023":{"gdp":1.389,"soc":1.133,"hea":0.521,"fre":0.621,"gen":0.146,"cor":0.155,"life":5.53,"n":139},"2024":{"gdp":1.331,"soc":1.329,"hea":0.551,"fre":0.749,"gen":0.114,"cor":0.146,"life":5.58,"n":143},"2025":{"gdp":1.55,"soc":1.201,"hea":0.615,"fre":0.884,"gen":0.106,"cor":0.147,"life":5.656,"n":144}};
+
+// Plain-language captions. <b>Country</b> = will render bold + coloured in caption.
+const ANNOTATIONS = {
+  2019: "Before the pandemic. Money predicts about 60% of how happy a country is. <b>Mozambique</b> is already much happier than its income would suggest.",
+  2020: "COVID hits. The link between money and happiness weakens — when everyone is locked down, wealth matters less than it usually does.",
+  2021: "An uneven recovery. <b>Costa Rica</b> and <b>Mexico</b> stay well above the line thanks to strong family and social ties.",
+  2022: "Money's grip returns. <b>Singapore</b> is rich, healthy and free — but still less happy than expected. The paradox sharpens.",
+  2023: "<b>Mozambique</b>'s overperformance widens. <b>Afghanistan</b>'s collapse deepens. The model captures the average, but not the extremes.",
+  2024: "Eight countries, four different stories. Wealth alone cannot explain any of them — but together with the other five factors, it gets close.",
+  2025: "Money predicts happiness more than ever before. But it still cannot explain <b>Mozambique</b>'s joy, <b>Costa Rica</b>'s warmth, or <b>Singapore</b>'s reserve."
+};
+
+const COLORS = {
+  "Denmark":     "#2c3e50",
+  "Costa Rica":  "#c0392b",
+  "Mexico":      "#c0392b",
+  "Mozambique":  "#c0392b",
+  "United States":"#7a7a7a",
+  "Singapore":   "#3a6a8a",
+  "Botswana":    "#3a6a8a",
+  "Afghanistan": "#3a6a8a"
+};
+const FACTORS = [
+  {key:"gdp",  label:"Wealth"},
+  {key:"soc",  label:"Social"},
+  {key:"hea",  label:"Health"},
+  {key:"fre",  label:"Freedom"},
+  {key:"gen",  label:"Generosity"},
+  {key:"cor",  label:"Low corruption"}
+];
+// Per-factor petal palette (option a: petals carry factor identity; country colour
+// stays in centre dot + label). Hues chosen to harmonise with cream #f3ead8 panel.
+const FACTOR_COLORS = {
+  gdp: "#c89a3e",  // deep gold — wealth
+  soc: "#d97757",  // warm coral — social
+  hea: "#7a9b6e",  // sage green — health
+  fre: "#6b9bb8",  // sky blue — freedom
+  gen: "#9b7bb8",  // lavender — generosity
+  cor: "#b86b4a"   // terracotta — low corruption
+};
+// Per-factor observed maxima across the full WHR dataset, rounded up to
+// honest-looking ceilings. Bars are scaled to these so a "full bar" means
+// "highest contribution any country reaches on this factor."
+const FACTOR_MAX = {
+  gdp: 2.2,
+  soc: 1.8,
+  hea: 1.2,
+  fre: 1.2,
+  gen: 0.35,
+  cor: 0.65
+};
+
+function verdictFor(residual) {
+  // Wider "as expected" band so countries near the line (e.g. United States,
+  // residual ranges roughly −0.3 to +0.3 across years) read consistently —
+  // their glyph colour is neutral grey, so the verdict should also be neutral.
+  if (residual >= 0.7)  return "much happier than expected";
+  if (residual >= 0.35) return "happier than expected";
+  if (residual > -0.35) return "as expected";
+  if (residual > -0.7)  return "less happy than expected";
+  return "much less happy than expected";
+}
+
+const W=1200, H=720;
+const M={top:30, right:40, bottom:60, left:70};
+const IW=W-M.left-M.right, IH=H-M.top-M.bottom;
+
+const svg = d3.select("#chart");
+svg.append("defs").append("clipPath").attr("id","plotClip")
+  .append("rect").attr("width",IW).attr("height",IH);
+
+const g = svg.append("g").attr("transform",`translate(${M.left},${M.top})`);
+
+const xBase = d3.scaleLinear().domain([0, 2.3]).range([0, IW]);
+const yBase = d3.scaleLinear().domain([0, 10]).range([IH, 0]);
+let x = xBase.copy(), y = yBase.copy();
+
+const xAxisG = g.append("g").attr("class","axis").attr("transform",`translate(0,${IH})`);
+const yAxisG = g.append("g").attr("class","axis");
+const xAxis = d3.axisBottom(xBase).ticks(8);
+const yAxis = d3.axisLeft(yBase).ticks(7);
+xAxisG.call(xAxis);
+yAxisG.call(yAxis);
+
+// PLAIN-LANGUAGE axis labels
+g.append("text").attr("class","axis-label")
+  .attr("x", IW/2).attr("y", IH+44).attr("text-anchor","middle")
+  .text("Wealth →");
+g.append("text").attr("class","axis-label")
+  .attr("transform","rotate(-90)")
+  .attr("x",-IH/2).attr("y",-46).attr("text-anchor","middle")
+  .text("Happiness →");
+
+g.append("rect").attr("x",0).attr("y",0).attr("width",IW).attr("height",IH/2)
+  .attr("fill","#c0392b").attr("opacity",0.025);
+g.append("rect").attr("x",0).attr("y",IH/2).attr("width",IW).attr("height",IH/2)
+  .attr("fill","#3a6a8a").attr("opacity",0.03);
+
+const plot = g.append("g").attr("clip-path","url(#plotClip)");
+const bgLayer = plot.append("g").attr("class","bg");
+const regLayer = plot.append("g").attr("class","reg");
+const quadLayer = plot.append("g").attr("class","quad");
+const stemLayer = plot.append("g").attr("class","stems");
+const avgLayer = plot.append("g").attr("class","avg");
+const glyphLayer = plot.append("g").attr("class","glyphs");
+const haloLayer = plot.append("g").attr("class","halos");
+const labelLayer = g.append("g").attr("class","labels");
+
+// quadrant labels — placed mid-chart (centred horizontally) so they read across the
+// red and blue zones without colliding with the top-left "Reading the flower" legend.
+quadLayer.append("text").attr("class","quad-label")
+  .attr("fill","#c0392b").attr("opacity",0.6)
+  .attr("x", IW/2).attr("y", 26).attr("text-anchor","middle")
+  .text("Happier than wealth predicts");
+quadLayer.append("text").attr("class","quad-label")
+  .attr("fill","#3a6a8a").attr("opacity",0.6)
+  .attr("x", IW/2).attr("y", IH-14).attr("text-anchor","middle")
+  .text("Unhappier than wealth predicts");
+
+const N = FACTORS.length;
+const PETAL_MAX = 48;
+const PETAL_SCALE = PETAL_MAX / 2.2;
+const PETAL_WIDTH_RATIO = 0.45;
+
+function petalPathSingle(value) {
+  const L = Math.max(value * PETAL_SCALE, 1);
+  const w = L * PETAL_WIDTH_RATIO;
+  return `M0,0 Q${L*0.35},${-w} ${L},0 Q${L*0.35},${w} 0,0 Z`;
+}
+
+let currentYear = 2025;
+
+const pinned = new Set();
+
+function drawBg(year) {
+  const pts = ALL[year] || [];
+  // Cast countries get the flower treatment — exclude them from bg-dot pool to avoid duplicate hover.
+  const castSet = new Set(Object.keys(CAST));
+  const bgPts = pts.filter(d => !castSet.has(d.c)).map((d,i) => ({...d, rank: pts.indexOf(d)+1, total: pts.length}));
+  const sel = bgLayer.selectAll("circle").data(bgPts, d=>d.c);
+  sel.enter().append("circle")
+    .attr("class","bg-dot")
+    .attr("r",2.2)
+    .attr("cx", d=>x(d.gdp))
+    .attr("cy", d=>y(d.life))
+    .style("cursor","pointer")
+    .on("mouseenter", function(ev,d) {
+      d3.select(this).transition().duration(120)
+        .attr("r", 4.5).attr("opacity", 1);
+      tip.style("opacity",1).html(
+        `<div style="font-weight:600;margin-bottom:2px">${d.c}</div>
+         <div style="opacity:0.75;font-size:11px">Rank ${d.rank} of ${d.total} · Happiness ${d.life.toFixed(2)}</div>`
+      );
+    })
+    .on("mousemove", (ev) => {
+      tip.style("left",(ev.pageX+14)+"px").style("top",(ev.pageY+10)+"px");
+    })
+    .on("mouseleave", function() {
+      d3.select(this).transition().duration(120)
+        .attr("r", 2.2).attr("opacity", 0.45);
+      tip.style("opacity",0);
+    })
+    .merge(sel)
+    .transition().duration(700)
+    .attr("cx", d=>x(d.gdp))
+    .attr("cy", d=>y(d.life));
+  sel.exit().remove();
+}
+
+function drawReg(year) {
+  const r = REG[year];
+  const x0=0.0, x1=2.3;
+  const line = regLayer.selectAll("line.reg-line").data([r]);
+  line.enter().append("line").attr("class","reg-line")
+    .merge(line)
+    .transition().duration(700)
+    .attr("x1",x(x0)).attr("y1",y(r.m*x0+r.b))
+    .attr("x2",x(x1)).attr("y2",y(r.m*x1+r.b));
+}
+
+// === WORLD AVERAGE GLYPH ===
+// World average glyph — smaller scale than cast (28px vs 38px), no surrounding ring,
+// stronger dashed petals so it reads as "a faint comparator" rather than a competing flower.
+const AVG_PETAL_MAX = 36;
+const AVG_PETAL_SCALE = AVG_PETAL_MAX / 2.2;
+function avgPetalPath(value) {
+  const L = Math.max(value * AVG_PETAL_SCALE, 1);
+  const w = L * PETAL_WIDTH_RATIO;
+  return `M0,0 Q${L*0.35},${-w} ${L},0 Q${L*0.35},${w} 0,0 Z`;
+}
+function drawAvg(year) {
+  const a = WAVG[year];
+  let group = avgLayer.selectAll("g.avg-glyph").data([a]);
+  const enter = group.enter().append("g").attr("class","avg-glyph");
+  FACTORS.forEach((f,i)=>{
+    const angle = (Math.PI*2)*i/N - Math.PI/2;
+    const pg = enter.append("g").attr("class","avg-petal avg-petal-"+f.key)
+      .attr("transform",`rotate(${angle*180/Math.PI})`);
+    pg.append("path")
+      .attr("fill","#9a8a6e").attr("fill-opacity",0.18)
+      .attr("stroke","#9a8a6e").attr("stroke-width",0.9)
+      .attr("stroke-dasharray","2 2");
+  });
+  enter.append("circle").attr("class","avg-center")
+    .attr("r",2).attr("fill","#9a8a6e").attr("opacity",0.6);
+  enter.append("text").attr("class","avg-label")
+    .attr("text-anchor","middle")
+    .attr("y", AVG_PETAL_MAX+14)
+    .text("World average");
+
+  const merged = enter.merge(group);
+  merged.transition().duration(700)
+    .attr("transform", d=>`translate(${x(d.gdp)},${y(d.life)})`);
+  merged.each(function(d) {
+    const sel = d3.select(this);
+    FACTORS.forEach((f,i)=>{
+      sel.select(".avg-petal-"+f.key+" path")
+        .transition().duration(700)
+        .attr("d", avgPetalPath(+d[f.key]||0));
+    });
+  });
+}
+
+// Width-aware label collision resolver.
+// Each label has measured width (approx — depends on country length); we push apart
+// any pair whose bounding boxes overlap, not just by y-distance.
+// Returns positions with `dx, dy` offsets from the glyph anchor so we can draw leader lines.
+const LABEL_WIDTHS = {
+  "Denmark":52,"Costa Rica":68,"Mexico":48,"Mozambique":76,
+  "United States":86,"Singapore":62,"Botswana":58,"Afghanistan":68
+};
+// Lock label side by narrative role rather than year-by-year residual sign.
+// Stops countries near zero residual (e.g. United States) from flipping label side as you scrub years.
+// Sides supported: "above" / "below" / "left" / "right".
+const LABEL_SIDE = {
+  "Costa Rica":"above","Mozambique":"above","Denmark":"above",
+  "Mexico":"above",
+  "United States":"below",
+  "Singapore":"below",
+  "Botswana":"below","Afghanistan":"below"
+};
+// Narrative role per country — small italic tag near the country name.
+// Four quadrants × two exemplars each: structure makes the cast defensible, not cherry-picked.
+// Roles complement (don't repeat) the big chart quadrant labels.
+const QUADRANT_ROLE = {
+  "Denmark":"benchmark",
+  "United States":"on the line",
+  "Costa Rica":"community over wealth",
+  "Mexico":"family ties",
+  "Mozambique":"resilience without resources",
+  "Singapore":"wealth without warmth",
+  "Botswana":"the steepest gap",
+  "Afghanistan":"crisis below all factors"
+};
+const LABEL_BLOCK_H = 26; // country line + role tag (role is hover-quieter italic)
+
+// Per-country, per-year manual override. Use sparingly — only when two flowers sit so
+// close horizontally that their "above" labels collide (e.g. Mexico + Costa Rica in 2024).
+// Format: country -> { year: "above"|"below"|"left"|"right" }
+const LABEL_OVERRIDE = {
+  "Mexico": { 2024: "left" }   // Costa Rica keeps "above"; Mexico moves out of its way
+};
+
+function resolveLabels(positions) {
+  // Simple: fixed offset per side, no collision resolution.
+  // Labels are hand-placed via LABEL_SIDE; sides chosen to avoid overlap.
+  positions.forEach(p => {
+    p.w = (LABEL_WIDTHS[p.country] || 60);
+    p.h = LABEL_BLOCK_H;
+    p.dx = p.x - p.anchorX;
+    p.dy = p.y - p.anchorY;
+    // leader line only for side="right" or "left" (long horizontal gap)
+    p.needLeader = (p.side === "right" || p.side === "left");
+  });
+  return positions;
+}
+
+const tip = d3.select("#tip");
+
+function buildCastData(year) {
+  const r = REG[year];
+  return Object.entries(CAST).map(([country, yrs]) => {
+    const d = yrs[year];
+    if (!d) return null;
+    const predicted = r.m * d.gdp + r.b;
+    return {country, year, ...d, predicted, residual: d.life - predicted};
+  }).filter(Boolean);
+}
+
+function drawCast(year) {
+  const data = buildCastData(year);
+
+  const stems = stemLayer.selectAll("line.stem").data(data, d=>d.country);
+  // Inset stem endpoints so the dashed line visibly stops short of (a) the flower centre
+  // and (b) the regression line — prevents the "stems crossing the regression" look.
+  // Generous reg-side inset (6px) so any tiny mid-transition mismatch between stem and
+  // regression line doesn't read as the stem crossing through.
+  const stemInsetFlower = 6;     // px gap below/above the flower base
+  const stemInsetReg    = 6;     // px gap above/below where stem meets the regression
+  stems.enter().append("line")
+    .attr("class","stem")
+    .attr("stroke", d=>COLORS[d.country])
+    .merge(stems)
+    .transition().duration(700)
+    .attr("x1", d=>x(d.gdp)).attr("x2", d=>x(d.gdp))
+    .attr("y1", d => {
+      const yL = y(d.life), yP = y(d.predicted);
+      return yL + (yP > yL ? stemInsetFlower : -stemInsetFlower);
+    })
+    .attr("y2", d => {
+      const yL = y(d.life), yP = y(d.predicted);
+      // Clamp: don't draw if stem would be inverted (insets larger than residual span)
+      const innerStart = yL + (yP > yL ? stemInsetFlower : -stemInsetFlower);
+      const innerEnd   = yP + (yP > yL ? -stemInsetReg : stemInsetReg);
+      if ((yP > yL && innerEnd < innerStart) || (yP < yL && innerEnd > innerStart)) {
+        return innerStart;
+      }
+      return innerEnd;
+    })
+    .attr("opacity", 1);
+  stems.exit().remove();
+
+  // Anchor dot on the regression line at each country's predicted-y.
+  // Unambiguous visual terminus for every stem — kills the "stem crosses regression" illusion
+  // when faint glyphs (world-avg) or other elements sit nearby in the same vertical band.
+  const anchors = stemLayer.selectAll("circle.reg-anchor").data(data, d=>d.country);
+  anchors.enter().append("circle")
+    .attr("class","reg-anchor")
+    .attr("r", 2.8)
+    .attr("fill", d=>COLORS[d.country])
+    .attr("stroke", "var(--panel)")
+    .attr("stroke-width", 1.2)
+    .merge(anchors)
+    .transition().duration(700)
+    .attr("cx", d=>x(d.gdp))
+    .attr("cy", d=>y(d.predicted))
+    .attr("opacity", 0.85);
+  anchors.exit().remove();
+
+  const gl = glyphLayer.selectAll("g.glyph").data(data, d=>d.country);
+  const enter = gl.enter().append("g").attr("class","glyph")
+    .attr("transform", d=>`translate(${x(d.gdp)},${y(d.life)})`)
+    .style("cursor","pointer")
+    .on("mouseenter",function(ev,d){
+      tip.style("opacity",1).html(tooltipHTML(d));
+      d3.select(this).raise();
+      showHoverHalo(d);
+    })
+    .on("mousemove",(ev)=>{
+      tip.style("left",(ev.pageX+14)+"px").style("top",(ev.pageY+10)+"px");
+    })
+    .on("mouseleave",function(ev,d){
+      tip.style("opacity",0);
+      hideHoverHalo();
+    })
+    .on("click", function(ev,d) {
+      togglePin(d.country);
+      ev.stopPropagation();
+    });
+
+  enter.each(function(d) {
+    const sel = d3.select(this);
+    sel.append("circle").attr("class","pinned-ring")
+      .attr("r", PETAL_MAX+5)
+      .attr("stroke", COLORS[d.country])
+      .attr("opacity", 0);
+    FACTORS.forEach((f,i)=>{
+      const angle = (Math.PI*2)*i/N - Math.PI/2;
+      const pg = sel.append("g").attr("class","petal petal-"+f.key)
+        .attr("transform", `rotate(${angle*180/Math.PI})`);
+      pg.append("path")
+        .attr("fill", FACTOR_COLORS[f.key]).attr("fill-opacity",0.70)
+        .attr("stroke", FACTOR_COLORS[f.key]).attr("stroke-width",0.8)
+        .attr("stroke-linejoin","round")
+        .attr("d", petalPathSingle(+d[f.key]||0));
+    });
+    sel.append("circle").attr("class","center").attr("r",2.2).attr("fill", COLORS[d.country]);
+  });
+
+  const merged = enter.merge(gl);
+  merged.transition().duration(700)
+    .attr("transform", d=>`translate(${x(d.gdp)},${y(d.life)})`);
+
+  merged.each(function(d) {
+    const sel = d3.select(this);
+    sel.select(".pinned-ring")
+      .attr("opacity", pinned.has(d.country) ? 1 : 0);
+    FACTORS.forEach((f,i)=>{
+      sel.select(".petal-"+f.key+" path")
+        .transition().duration(700)
+        .attr("d", petalPathSingle(+d[f.key]||0));
+    });
+  });
+
+  gl.exit().remove();
+
+  // Lock label side by narrative role (see LABEL_SIDE at module scope) so US doesn't flip year-to-year.
+  const labelPositions = data.map(d=>{
+    const override = LABEL_OVERRIDE[d.country] && LABEL_OVERRIDE[d.country][d.year];
+    const side = override || LABEL_SIDE[d.country] || (d.residual >= 0 ? "above" : "below");
+    const ax = x(d.gdp);
+    const ay = y(d.life);
+    // Adaptive offset: use the country's actual longest petal this year, not PETAL_MAX.
+    // Stops tiny flowers (Afghanistan) from having their label stranded 50px below the pistil.
+    const maxPetal = d3.max(FACTORS, f => (+d[f.key] || 0)) * PETAL_SCALE;
+    const petalGap = Math.max(maxPetal, 14);  // floor of 14px so labels never touch the pistil
+    let baseX = ax, baseY = ay;
+    if (side === "above")      baseY -= (petalGap + 14);
+    else if (side === "below") baseY += (petalGap + 18);
+    else if (side === "right") baseX += (petalGap + 8);
+    else if (side === "left")  baseX -= (petalGap + 8);
+    return {country:d.country, d, side, anchorX:ax, anchorY:ay, x:baseX, y:baseY, above: side==="above"};
+  });
+  resolveLabels(labelPositions);
+
+  const lab = labelLayer.selectAll("g.lab").data(labelPositions, d=>d.country);
+  const labEnter = lab.enter().append("g").attr("class","lab");
+  labEnter.append("line").attr("class","leader");
+  labEnter.append("text").attr("class","glyph-label");
+  labEnter.append("text").attr("class","role-tag");
+
+  const labMerged = labEnter.merge(lab);
+  labMerged.transition().duration(700)
+    .attr("transform", p=>`translate(${p.x},${p.y})`);
+  labMerged.select("text.glyph-label")
+    .attr("text-anchor", p => p.side === "right" ? "start" : p.side === "left" ? "end" : "middle")
+    .text(p=>p.country)
+    .attr("fill", p=>COLORS[p.country]);
+  // role tag — sits above country name when label is above the glyph, below when below.
+  // This makes the four-quadrant structure visible at a glance: tutors see the system, not 8 arbitrary picks.
+  labMerged.select("text.role-tag")
+    .attr("text-anchor", p => p.side === "right" ? "start" : p.side === "left" ? "end" : "middle")
+    .attr("font-family","Georgia,serif")
+    .attr("font-style","italic")
+    .attr("font-size","10px")
+    .attr("fill", p=>COLORS[p.country])
+    .attr("fill-opacity", 0.7)
+    .attr("dy", p => p.above ? -12 : 12)
+    .text(p => QUADRANT_ROLE[p.country] || "");
+  // leader line from label back to glyph — direction depends on side
+  labMerged.select("line.leader")
+    .attr("stroke", p=>COLORS[p.country])
+    .attr("opacity", p=>p.needLeader ? 0.4 : 0)
+    .transition().duration(700)
+    .attr("x1", p => p.side === "right" ? -4 : p.side === "left" ? 4 : 0)
+    .attr("y1", p => (p.side === "right" || p.side === "left") ? 0 : (p.above ? 6 : -8))
+    .attr("x2", p => {
+      if (p.side === "right") return -p.dx - (PETAL_MAX+2);
+      if (p.side === "left")  return -p.dx + (PETAL_MAX+2);
+      return -p.dx;
+    })
+    .attr("y2", p => {
+      if (p.side === "right" || p.side === "left") return -p.dy;
+      return -p.dy + (p.above ? PETAL_MAX+2 : -(PETAL_MAX+2));
+    });
+  lab.exit().remove();
+}
+
+function showHoverHalo(d) {
+  haloLayer.selectAll("circle.hover-halo").remove();
+  haloLayer.append("circle").attr("class","hover-halo")
+    .attr("cx", x(d.gdp)).attr("cy", y(d.life))
+    .attr("r", PETAL_MAX+8)
+    .attr("stroke", COLORS[d.country])
+    .attr("opacity", 0)
+    .transition().duration(180).attr("opacity", 0.7);
+}
+function hideHoverHalo() {
+  haloLayer.selectAll("circle.hover-halo")
+    .transition().duration(180).attr("opacity", 0).remove();
+}
+
+// Generate a 6-row factor-bar grid. `mode` is "tip" (dark bg, white text) or "pin" (cream bg).
+function factorBarsHTML(d, mode) {
+  const rows = FACTORS.map(f => {
+    const v = +d[f.key] || 0;
+    const pct = Math.min(100, (v / FACTOR_MAX[f.key]) * 100);
+    return `<div class="fbar-label">${f.label}</div>
+      <div class="fbar-track"><div class="fbar-fill" style="width:${pct.toFixed(1)}%;background:${FACTOR_COLORS[f.key]}"></div></div>
+      <div class="fbar-val">${v.toFixed(2)}</div>`;
+  }).join("");
+  return `<div class="fbar-grid">${rows}</div>`;
+}
+
+function tooltipHTML(d) {
+  const verdict = verdictFor(d.residual);
+  return `<b>${d.country}</b> · ${d.year}<br>
+    <div class="row"><span>Happiness</span><span>${d.life.toFixed(2)} / 10</span></div>
+    <div style="margin:4px 0;font-style:italic;opacity:0.85">${verdict}</div>
+    <hr style="border:none;border-top:1px solid #555;margin:6px 0">
+    <div style="font-size:10px;opacity:0.7;margin-bottom:2px">What's inside the happiness:</div>
+    ${factorBarsHTML(d, "tip")}
+    <div style="margin-top:6px;font-style:italic;opacity:0.75">Click to pin trail</div>`;
+}
+
+// === ANNOTATION ===
+function renderCaption(text) {
+  // replace <b>Country</b> with coloured span
+  return text.replace(/<b>([^<]+)<\/b>/g, (m, c) => {
+    const col = COLORS[c] || "#1f1a14";
+    return `<span class="country-mention" style="color:${col}">${c}</span>`;
+  });
+}
+function updateAnnotation(year) {
+  d3.select("#annoYr").text(year);
+  d3.select("#annoText").html(renderCaption(ANNOTATIONS[year] || ""));
+}
+
+// === TRAIL STRIP ===
+const YEARS = [2019,2020,2021,2022,2023,2024,2025];
+const MINI_R = 38;
+const MINI_SCALE = MINI_R / 2.2;
+
+function miniPetalPath(value) {
+  const L = Math.max(value * MINI_SCALE, 0.5);
+  const w = L * PETAL_WIDTH_RATIO;
+  return `M0,0 Q${L*0.35},${-w} ${L},0 Q${L*0.35},${w} 0,0 Z`;
+}
+
+function togglePin(country) {
+  if (pinned.has(country)) pinned.delete(country);
+  else pinned.add(country);
+  redrawPinnedRings();
+  renderTrail();
+}
+
+function redrawPinnedRings() {
+  glyphLayer.selectAll("g.glyph").select(".pinned-ring")
+    .attr("opacity", d => pinned.has(d.country) ? 1 : 0);
+}
+
+function renderTrail() {
+  const strip = d3.select("#trailStrip");
+  const rowsContainer = d3.select("#trailRows");
+  rowsContainer.selectAll("*").remove();
+
+  if (pinned.size === 0) {
+    strip.style("display","none");
+    return;
+  }
+  strip.style("display","block");
+
+  pinned.forEach(country => {
+    const row = rowsContainer.append("div").attr("class","trail-row");
+    const lbl = row.append("div").attr("class","trail-row-label");
+    lbl.append("span")
+      .style("color", COLORS[country])
+      .text(country);
+    lbl.append("button").attr("class","close")
+      .text("× unpin")
+      .on("click", ()=>togglePin(country));
+
+    const cellW = 130, cellH = 120;
+    const svgRow = row.append("svg")
+      .attr("width", cellW * YEARS.length)
+      .attr("height", cellH);
+
+    YEARS.forEach((yr, idx) => {
+      const d = CAST[country] && CAST[country][yr];
+      const cell = svgRow.append("g")
+        .attr("transform", `translate(${idx*cellW + cellW/2},${cellH/2 + 4})`);
+      cell.append("text").attr("y", -cellH/2 + 12).attr("text-anchor","middle")
+        .attr("font-size","11px").attr("fill","#7a6f5e")
+        .attr("font-family","Georgia,serif").attr("font-style","italic")
+        .text(yr);
+      if (!d) {
+        cell.append("text").attr("text-anchor","middle").attr("dy",4)
+          .attr("font-size","10px").attr("fill","#7a6f5e")
+          .attr("font-style","italic").text("no data");
+        return;
+      }
+      cell.append("text").attr("y", cellH/2 - 6).attr("text-anchor","middle")
+        .attr("font-size","11px").attr("fill","#1f1a14")
+        .attr("font-family","Georgia,serif").attr("font-weight","700")
+        .text(d.life.toFixed(2));
+
+      FACTORS.forEach((f,i)=>{
+        const angle = (Math.PI*2)*i/N - Math.PI/2;
+        const pg = cell.append("g")
+          .attr("transform", `rotate(${angle*180/Math.PI})`);
+        pg.append("path")
+          .attr("fill", FACTOR_COLORS[f.key]).attr("fill-opacity",0.70)
+          .attr("stroke", FACTOR_COLORS[f.key]).attr("stroke-width",0.9)
+          .attr("d", miniPetalPath(+d[f.key]||0));
+      });
+      cell.append("circle").attr("r", 2.2).attr("fill", COLORS[country]);
+    });
+
+    // Large factor bars for the currently-selected year, sized to the
+    // dataset's per-factor max. Updated by updatePinBars() on year change.
+    const barPanel = row.append("div").attr("class","pin-bars")
+      .attr("data-country", country);
+    barPanel.append("div").attr("class","pin-bars-head")
+      .html(`Factors in <b style="font-style:normal" id="pinBarsYr-${country.replace(/\s+/g,'_')}">${currentYear}</b> — scaled to the highest value any country reaches`);
+    barPanel.append("div").attr("class","pin-bars-body");
+    updatePinBarsFor(country, currentYear);
+  });
+}
+
+// Render/refresh a single country's bar panel for a given year.
+function updatePinBarsFor(country, year) {
+  const panel = d3.select(`.pin-bars[data-country="${country}"]`);
+  if (panel.empty()) return;
+  const d = CAST[country] && CAST[country][year];
+  panel.select(`#pinBarsYr-${country.replace(/\s+/g,'_')}`).text(year);
+  const body = panel.select(".pin-bars-body");
+  body.html("");
+  if (!d) {
+    body.append("div").style("font-style","italic").style("color","#7a6f5e")
+      .text("No data for this year.");
+    return;
+  }
+  body.html(factorBarsHTML(d, "pin"));
+}
+
+// Refresh all pinned countries' bars (called from render() on year change).
+function updateAllPinBars(year) {
+  pinned.forEach(country => updatePinBarsFor(country, year));
+}
+
+// === GLYPH LEGEND — top-LEFT ===
+function drawGlyphLegend() {
+  // top-left — first place the eye lands (F-pattern reading order).
+  // Quadrant labels have been moved to the centre-top to avoid overlap.
+  const boxW = 195, boxH = 192;
+  const lx = 8;
+  const ly = 8;
+  const lg = g.append("g").attr("class","glyph-legend")
+    .attr("transform", `translate(${lx},${ly})`);
+  lg.append("rect").attr("x", 0).attr("y", 0).attr("width", boxW).attr("height", boxH)
+    .attr("fill","#f3ead8").attr("opacity",0.92).attr("rx", 4)
+    .attr("stroke","#d8cdb5");
+  lg.append("text").attr("x", boxW/2).attr("y", 20)
+    .attr("text-anchor","middle")
+    .attr("font-family","Georgia,serif").attr("font-style","italic")
+    .attr("font-size","13px").attr("fill","#1f1a14")
+    .text("Reading the flower");
+  lg.append("text").attr("x", boxW/2).attr("y", 36)
+    .attr("text-anchor","middle")
+    .attr("font-family","Georgia,serif").attr("font-style","italic")
+    .attr("font-size","10.5px").attr("fill","#7a6f5e")
+    .text("Petal length = magnitude · colour = factor");
+
+  // sample glyph — bigger, centred lower in the box to leave room for the title
+  const cx = boxW/2, cy = boxH/2 + 18;
+  const sample = { gdp:1.8, soc:1.4, hea:1.2, fre:1.0, gen:0.6, cor:0.4 };
+  const sampleScale = 36 / 2.2;   // larger petals (was 22/2.2)
+  FACTORS.forEach((f,i)=>{
+    const angle = (Math.PI*2)*i/N - Math.PI/2;
+    const pg = lg.append("g").attr("transform", `translate(${cx},${cy}) rotate(${angle*180/Math.PI})`);
+    const L = sample[f.key] * sampleScale;
+    const w = L * 0.45;
+    pg.append("path")
+      .attr("fill", FACTOR_COLORS[f.key]).attr("fill-opacity",0.70)
+      .attr("stroke", FACTOR_COLORS[f.key]).attr("stroke-width",0.7)
+      .attr("d", `M0,0 Q${L*0.35},${-w} ${L},0 Q${L*0.35},${w} 0,0 Z`);
+    const tipX = cx + Math.cos(angle)*(L+9);
+    const tipY = cy + Math.sin(angle)*(L+9);
+    lg.append("text").attr("x", tipX).attr("y", tipY)
+      .attr("text-anchor", Math.cos(angle)>0.3?"start":Math.cos(angle)<-0.3?"end":"middle")
+      .attr("dy", Math.sin(angle)>0.3?9:Math.sin(angle)<-0.3?-2:3)
+      .attr("font-size","10.5px").attr("fill","#1f1a14")
+      .attr("font-family","Georgia,serif")
+      .text(f.label);
+  });
+  lg.append("circle").attr("cx",cx).attr("cy",cy).attr("r",2).attr("fill","#1f1a14");
+
+  // hover hint — replaces the verdict sub-labels that were removed
+  lg.append("text").attr("x", boxW/2).attr("y", boxH - 8)
+    .attr("text-anchor","middle")
+    .attr("font-family","Georgia,serif").attr("font-style","italic")
+    .attr("font-size","10px").attr("fill","#7a6f5e")
+    .text("Hover a flower for detail");
+}
+drawGlyphLegend();
+
+function render(year) {
+  currentYear = year;
+  drawBg(year);
+  drawReg(year);
+  drawAvg(year);
+  drawCast(year);
+  updateAnnotation(year);
+  updateAllPinBars(year);
+  d3.select("#yrLabel").text(year);
+}
+
+render(2025);
+
+d3.select("#yearSlider").on("input", function() {
+  render(+this.value);
+});
+
+let playing=false, timer=null;
+d3.select("#playBtn").on("click", function() {
+  playing = !playing;
+  d3.select(this).text(playing ? "❚❚ Pause" : "▶ Play");
+  if (playing) {
+    timer = setInterval(()=>{
+      const sl = document.getElementById("yearSlider");
+      let v = +sl.value + 1;
+      if (v > 2025) v = 2019;
+      sl.value = v;
+      render(v);
+    }, 3500);   // slower so captions can be read
+  } else {
+    clearInterval(timer);
+  }
+});
+
+d3.select("#resetViewBtn").on("click", ()=>{
+  document.getElementById("yearSlider").value = 2025;
+  render(2025);
+  if (playing) { d3.select("#playBtn").dispatch("click"); }
+});
+</script>
+</body>
+</html>
