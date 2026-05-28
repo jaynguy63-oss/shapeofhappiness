@@ -4,7 +4,7 @@ An interactive data visualisation exploring the relationship between national we
 
 **Live site:** https://jaynguy63-oss.github.io/shapeofhappiness/
 
-![Cover image of the interactive showing flower glyphs on a wealth-happiness scatter plot](preview.png)
+![Cover image of the interactive showing flower glyphs on a wealth-happiness scatter plot](Screenshot 2026-05-29 at 08.05.00.png)
 
 ---
 
